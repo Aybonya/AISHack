@@ -1,0 +1,31 @@
+{
+  "name": "aishack",
+  "version": "1.0.0",
+  "description": "The project of team \"Ренжiк жок\" by Aibar Karbuzov and Tamirlan Ahonov",
+  "main": "index.js",
+  "scripts": {
+    "find:replacement": "node scripts/find-replacements.js",
+    "import:school": "node scripts/import-school-data.js",
+    "import:sample": "node scripts/import-sample-data.js",
+    "start": "node src/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aybonya/AISHack.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Aybonya/AISHack/issues"
+  },
+  "homepage": "https://github.com/Aybonya/AISHack#readme",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "firebase-admin": "^13.8.0",
+    "string-similarity": "^4.0.4",
+    "xlsx": "^0.18.5"
+  }
+}

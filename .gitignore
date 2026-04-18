@@ -1,0 +1,16 @@
+.next
+node_modules
+coverage
+out
+.env
+.env.local
+.env.*
+!.env.example
+!**/.env.example
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+GreenAPI/AISHack/.env
+GreenAPI/AISHack/firebase-service-account.json

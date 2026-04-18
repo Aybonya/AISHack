@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aqbobek AI Orchestrator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #f3efe6;
+        --paper: #fffdf8;
+        --ink: #1c2730;
+        --muted: #62717b;
+        --accent: #0f766e;
+        --accent-2: #d97706;
+        --danger: #b91c1c;
+        --line: rgba(28, 39, 48, 0.12);
+        --shadow: 0 20px 50px rgba(28, 39, 48, 0.12);
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Manrope", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(217, 119, 6, 0.12), transparent 24%),
+          var(--bg);
+      }
+
+      .shell {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      .hero {
+        background: linear-gradient(135deg, #183847 0%, #0f766e 100%);
+        color: white;
+        border-radius: 28px;
+        padding: 28px;
+        box-shadow: var(--shadow);
+      }
+
+      .hero h1 {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 4vw, 48px);
+      }
+
+      .hero p {
+        margin: 0;
+        max-width: 760px;
+        color: rgba(255, 255, 255, 0.86);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        padding: 20px;
+        box-shadow: var(--shadow);
+      }
+
+      .span-12 { grid-column: span 12; }
+      .span-8 { grid-column: span 8; }
+      .span-6 { grid-column: span 6; }
+      .span-4 { grid-column: span 4; }
+
+      .kpis {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+      }
+
+      .kpi {
+        padding: 18px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(15,118,110,0.06), rgba(15,118,110,0.01));
+        border: 1px solid rgba(15, 118, 110, 0.12);
+      }
+
+      .kpi strong {
+        display: block;
+        font-size: 30px;
+        margin-top: 10px;
+      }
+
+      h2 {
+        margin: 0 0 14px;
+        font-size: 20px;
+      }
+
+      .brief {
+        font-size: 18px;
+        line-height: 1.6;
+      }
+
+      .list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .item {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px;
+        background: white;
+      }
+
+      .tag {
+        display: inline-flex;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        background: rgba(15, 118, 110, 0.1);
+        color: var(--accent);
+      }
+
+      .tag.danger {
+        background: rgba(185, 28, 28, 0.1);
+        color: var(--danger);
+      }
+
+      .composer textarea {
+        width: 100%;
+        min-height: 140px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px;
+        font: inherit;
+        resize: vertical;
+        background: white;
+      }
+
+      .composer .row {
+        display: flex;
+        gap: 12px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        border: 0;
+        border-radius: 14px;
+        padding: 12px 16px;
+        font: inherit;
+        font-weight: 700;
+        color: white;
+        background: var(--accent);
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: var(--accent-2);
+      }
+
+      pre {
+        white-space: pre-wrap;
+        background: #11212a;
+        color: #e5f3f2;
+        padding: 16px;
+        border-radius: 18px;
+        overflow: auto;
+      }
+
+      @media (max-width: 960px) {
+        .span-8, .span-6, .span-4 { grid-column: span 12; }
+        .kpis { grid-template-columns: repeat(2, 1fr); }
+      }
+
+      @media (max-width: 640px) {
+        .shell { padding: 14px; }
+        .hero, .card { border-radius: 20px; }
+        .kpis { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <h1>AI Zavuch Dashboard</h1>
+        <p>
+          Панель управления директора: посещаемость, инциденты, замены, задачи
+          из WhatsApp-потока учителей.
+        </p>
+        <div class="live-bar">
+          <div class="live-dot loading" id="liveDot"></div>
+          <span id="liveStatus">Подключение...</span>
+          <span style="margin-left:auto;opacity:0.6">обновление каждые 10 сек</span>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="card span-12">
+          <h2>Director AI Brief</h2>
+          <div id="brief" class="brief">Loading...</div>
+        </div>
+
+        <div class="card span-12">
+          <div id="kpis" class="kpis"></div>
+        </div>
+
+        <div class="card span-6">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <h2 style="margin:0;">Attendance</h2>
+            <button id="btnCafeteria" class="secondary" style="padding: 6px 12px; font-size: 12px; border-radius: 8px;">Отправить в столовую</button>
+          </div>
+          <div id="attendance" class="list"></div>
+        </div>
+
+        <div class="card span-6">
+          <h2>Replacement Cases</h2>
+          <div id="cases" class="list"></div>
+        </div>
+
+        <div class="card span-6">
+          <h2>Incidents</h2>
+          <div id="incidents" class="list"></div>
+        </div>
+
+        <div class="card span-6">
+          <h2>Director Tasks</h2>
+          <div id="tasks" class="list"></div>
+        </div>
+
+        <div class="card span-12 composer">
+          <h2>Симулировать WhatsApp сообщение</h2>
+          <div style="margin-bottom:10px">
+            <label style="font-size:13px;color:var(--muted);display:block;margin-bottom:4px">Имя отправителя (учитель из базы):</label>
+            <input id="senderName" type="text" value="Нахмадинов Марат"
+              style="width:100%;padding:10px 14px;border:1px solid var(--line);border-radius:14px;font:inherit;background:white;margin-bottom:10px"
+            />
+          </div>
+          <textarea id="messageText">Нахмадинов Марат заболел, нужна замена во вторник 2 урок у 8D</textarea>
+          <div class="row">
+            <button id="sendTeacher">Отправить как учитель</button>
+            <button id="sendDirector" class="secondary">Отправить как директор</button>
+          </div>
+          <pre id="result"></pre>
+        </div>
+      </section>
+    </div>
+
+    <style>
+      /* ── Live indicator ── */
+      .live-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        color: rgba(255,255,255,0.7);
+        margin-top: 12px;
+      }
+      .live-dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: #4ade80;
+        box-shadow: 0 0 0 0 rgba(74,222,128,0.5);
+        animation: pulse-dot 2s infinite;
+        flex-shrink: 0;
+      }
+      @keyframes pulse-dot {
+        0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.6); }
+        70%  { box-shadow: 0 0 0 8px rgba(74,222,128,0); }
+        100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+      }
+      .live-dot.loading {
+        background: #fbbf24;
+        animation: none;
+      }
+
+      /* ── Smooth fade when data updates ── */
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(4px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      .item { animation: fadeIn 0.3s ease; }
+
+      /* ── Refresh countdown ring ── */
+      .countdown-ring {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+
+    <script>
+      const POLL_INTERVAL = 10_000; // 10 секунд
+
+      async function fetchJson(url, options) {
+        const response = await fetch(url, options);
+        return response.json();
+      }
+
+      function renderList(targetId, items, formatter) {
+        const root = document.getElementById(targetId);
+        if (!items || !items.length) {
+          root.innerHTML = '<div class="item">Нет данных</div>';
+          return;
+        }
+        // Обновляем только если данные изменились (по строке)
+        const newHtml = items.map(formatter).join("");
+        if (root.innerHTML !== newHtml) {
+          root.innerHTML = newHtml;
+        }
+      }
+
+      function setLiveState(state) {
+        const dot = document.getElementById("liveDot");
+        const status = document.getElementById("liveStatus");
+        if (!dot || !status) return;
+        if (state === "loading") {
+          dot.className = "live-dot loading";
+          status.textContent = "Обновляется...";
+        } else if (state === "ok") {
+          dot.className = "live-dot";
+          status.textContent = `Обновлено в ${new Date().toLocaleTimeString("ru-RU")}`;
+        } else {
+          dot.className = "live-dot loading";
+          status.textContent = "Ошибка соединения";
+        }
+      }
+
+      async function loadDashboard() {
+        setLiveState("loading");
+        try {
+          const overview = await fetchJson("/api/dashboard/overview");
+
+          document.getElementById("brief").textContent = overview.aiBrief;
+
+          const kpiData = [
+            { label: "Учеников присутствует", value: overview.attendance.totals.present, icon: "👥" },
+            { label: "Открытых инцидентов",   value: overview.stats.openIncidents,           icon: "⚠️" },
+            { label: "Задач директора",        value: overview.stats.openTasks,               icon: "📋" },
+            { label: "Замен на рассмотрении",  value: overview.stats.pendingReplacementCases, icon: "🔄" },
+          ];
+
+          const kpiHtml = kpiData.map(item => `
+            <div class="kpi">
+              <div style="font-size:22px;margin-bottom:4px">${item.icon}</div>
+              <div style="font-size:13px;color:var(--muted)">${item.label}</div>
+              <strong>${item.value ?? 0}</strong>
+            </div>
+          `).join("");
+
+          const kpisEl = document.getElementById("kpis");
+          if (kpisEl.innerHTML !== kpiHtml) kpisEl.innerHTML = kpiHtml;
+
+          renderList("attendance", overview.attendance.items, item => `
+            <div class="item">
+              <strong>${item.classId}</strong>
+              <span style="float:right;font-size:12px;color:var(--muted)">${item.dateKey || ""}</span>
+              <br/>
+              ✅ Присутствует: <b>${item.presentCount}</b> &nbsp;|&nbsp; 🤒 Отсутствует: <b>${item.absentCount}</b>
+              ${item.senderName ? `<br/><span style="font-size:12px;color:var(--muted)">от ${item.senderName}</span>` : ""}
+            </div>
+          `);
+
+          renderList("cases", overview.replacementCases, item => `
+            <div class="item">
+              <span class="tag">Замена</span>
+              <p><strong>${item.classId || "?"}</strong> — урок ${item.lessonNumber || "?"}, ${item.dayKey || "?"}</p>
+              <p>${item.subjectName || ""}</p>
+              <p>Кандидат: <b>${item.candidateTeacherName || "Не найден"}</b></p>
+            </div>
+          `);
+
+          renderList("incidents", overview.incidents, item => `
+            <div class="item">
+              <span class="tag ${item.priority === "high" ? "danger" : ""}">${item.priority === "high" ? "🔴 Высокий" : "🟡 Средний"}</span>
+              <p><strong>${item.title}</strong></p>
+              <p style="font-size:13px;color:var(--muted)">${item.summary}</p>
+              ${item.senderName ? `<p style="font-size:12px;color:var(--muted)">от ${item.senderName}</p>` : ""}
+            </div>
+          `);
+
+          renderList("tasks", overview.tasks, item => `
+            <div class="item">
+              <span class="tag">${item.status === "open" ? "Открыта" : item.status}</span>
+              <p><strong>${item.assigneeName || "Исполнитель не указан"}</strong></p>
+              <p>${item.title}</p>
+              <p style="font-size:12px;color:var(--muted)">Срок: ${item.dueHint || "не указан"}</p>
+            </div>
+          `);
+
+          setLiveState("ok");
+        } catch (err) {
+          console.error("Dashboard fetch error:", err);
+          setLiveState("error");
+        }
+      }
+
+      async function sendMessage(senderRole) {
+        const text = document.getElementById("messageText").value;
+        const nameInput = document.getElementById("senderName");
+        const senderName = nameInput ? nameInput.value : (senderRole === "director" ? "Директор" : "Нахмадинов Марат");
+
+        const payload = {
+          text,
+          senderName,
+          senderRole,
+          source: "dashboard_demo"
+        };
+
+        document.getElementById("result").textContent = "Обрабатываем...";
+
+        const result = await fetchJson("/api/messages/process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        document.getElementById("result").textContent = JSON.stringify(result, null, 2);
+        await loadDashboard();
+      }
+
+      document.getElementById("sendTeacher").addEventListener("click",  () => sendMessage("teacher"));
+      document.getElementById("sendDirector").addEventListener("click", () => sendMessage("director"));
+
+      document.getElementById("btnCafeteria").addEventListener("click", async () => {
+        const btn = document.getElementById("btnCafeteria");
+        const originalText = btn.textContent;
+        btn.textContent = "Отправка...";
+        btn.disabled = true;
+        try {
+          const res = await fetch("/api/actions/send-cafeteria", { method: "POST" });
+          if (res.ok) {
+            btn.textContent = "Отправлено!";
+            btn.style.background = "#28a745";
+          } else {
+            throw new Error("API error");
+          }
+        } catch (e) {
+          btn.textContent = "Ошибка";
+          btn.style.background = "#dc3545";
+        }
+        setTimeout(() => {
+          btn.textContent = originalText;
+          btn.disabled = false;
+          btn.style.background = ""; // reset to css default
+        }, 3000);
+      });
+
+      // Запускаем дашборд и ставим polling
+      loadDashboard();
+      setInterval(loadDashboard, POLL_INTERVAL);
+    </script>
+  </body>
+</html>
+
