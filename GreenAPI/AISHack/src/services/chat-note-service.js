@@ -2,7 +2,7 @@ const { db, admin } = require("../firebase");
 const { toId, normalizeSpace } = require("../utils");
 const { invalidateCollectionCache } = require("./school-data-service");
 
-async function saveChatNote({ rawText, parsedNote, recommendations, source = "manual_chat", messageId = null }) {
+async function saveChatNote({ rawText, parsedNote, recommendations, source = "manual_chat", messageId = null, autoApprove = false }) {
   const noteRef = db.collection("chat_notes").doc();
   const caseDocs = [];
 
@@ -14,7 +14,7 @@ async function saveChatNote({ rawText, parsedNote, recommendations, source = "ma
       messageId,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       source,
-      status: topCandidate ? "suggested" : "no_candidate",
+      status: topCandidate ? (autoApprove ? "approved" : "suggested") : "no_candidate",
       absentTeacherId: parsedNote.teacherId || null,
       classId: recommendation.entry.classId,
       dayKey: recommendation.entry.dayKey,

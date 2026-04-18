@@ -58,6 +58,10 @@ export interface Chat {
   avatar: string;
   unreadCount: number;
   lastMessageId: string;
+  pinned?: boolean;
+  isImportant?: boolean;
+  phoneNumber?: string;
+  isUnknown?: boolean;
 }
 
 export interface Message {

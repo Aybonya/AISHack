@@ -15,6 +15,7 @@ const mobileNav = [
   { href: "/chats", label: "Чаты" },
   { href: "/tasks", label: "Задачи" },
   { href: "/incidents", label: "Инциденты" },
+  { href: "/attendance", label: "Посещаемость" },
   { href: "/schedule", label: "Календарь" },
   { href: "/documents", label: "Документы" },
 ];
@@ -22,6 +23,10 @@ const mobileNav = [
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/";
   const showChatList = pathname === "/" || pathname.startsWith("/chats");
+
+  if (pathname === "/timetable") {
+    return <div className="min-h-screen bg-[#0b141a] text-foreground">{children}</div>;
+  }
 
   return (
     <div className="min-h-screen bg-[#0b141a] text-foreground">

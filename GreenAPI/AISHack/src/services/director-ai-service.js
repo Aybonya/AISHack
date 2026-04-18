@@ -8,6 +8,7 @@ const {
 } = require("./replacement-engine");
 const { saveChatNote } = require("./chat-note-service");
 const { invalidateCollectionCache } = require("./school-data-service");
+const { createLinkedTaskFromIncident } = require("./management-service");
 
 const INCIDENT_KEYWORDS = [
   "\\u0441\\u043b\\u043e\\u043c",
@@ -312,11 +313,16 @@ function findFuzzyTeacher(name, teacherIndex) {
   return null;
 }
 
-async function smartAIAnalyze(text, teacherAliases) {
+async function smartAIAnalyze(text, teacherAliases, senderContext = {}) {
   try {
     const prompt = `
-Ты умный ассистент завуча школы. Проанализируй текст от учителей и извлеки события в строгом JSON.
-Извлекай только то, что есть в тексте. Учителя могут писать с ошибками, неформально или странно.
+Ты умный ассистент завуча школы. Проанализируй текст от сотрудников школы и извлеки события в строгом JSON.
+Извлекай только то, что есть в тексте. Сотрудники могут писать с ошибками, неформально или странно.
+
+ДАННЫЕ ОТПРАВИТЕЛЯ:
+Имя/Роль: ${senderContext.name || "Неизвестный сотрудник"}
+Номер: ${senderContext.phone || "Неизвестен"}
+Тип: ${senderContext.role || "teacher"}
 
 СЕГОДНЯ: ${new Date().toLocaleDateString('ru-RU')}
 ТЕКУЩИЙ ДЕНЬ НЕДЕЛИ: ${new Date().toLocaleDateString('en-US', {weekday: 'long'}).toLowerCase()}
@@ -363,8 +369,9 @@ async function processIncomingMessage({ message, schoolData }) {
   const rawText = message.text || "";
 
   // ── 1. Определяем отправителя ──────────────────────────────────────────────
-  // Приоритет: совпадение по имени профиля → поиск ФИО в тексте
+  // Приоритет: жесткая привязка -> совпадение по имени профиля → поиск ФИО в тексте
   const senderId =
+    message.senderTeacherId ||
     senderTeacherId(message.senderName, teacherIndex) ||
     findTeacherInText(rawText, teacherIndex);
 
@@ -393,7 +400,11 @@ async function processIncomingMessage({ message, schoolData }) {
   let parsedAbsence = { intent: "note", teacherId: null, classId: null, lessonNumber: null, dayKey: null, rawText: rawText };
   
   // Пробуем умный ИИ
-  const aiResult = await smartAIAnalyze(rawText, teacherIndex.aliases);
+  const aiResult = await smartAIAnalyze(rawText, teacherIndex.aliases, {
+    name: message.senderName,
+    phone: message.senderPhone,
+    role: message.senderRole
+  });
   if (aiResult) {
     console.log("GPT Parsing result:", aiResult);
     if (aiResult.attendance) detections.attendance = aiResult.attendance;
@@ -475,6 +486,21 @@ async function processIncomingMessage({ message, schoolData }) {
       detections.incident
     );
     await createOrchestratorEvent(messageId, "incident_created", detections.incident);
+
+    // Автоматически создаём задачу для Завхоза
+    if (result.incidentId) {
+      try {
+        await createLinkedTaskFromIncident({
+          incidentId: result.incidentId,
+          title: `Устранить: ${detections.incident.title || detections.incident.summary || "Инцидент"}`,
+          description: detections.incident.summary || detections.incident.description || "",
+          location: detections.incident.location || "",
+        });
+        console.log(`✅ Auto-created task for incident ${result.incidentId}`);
+      } catch (e) {
+        console.error("Ошибка авто-создания задачи из инцидента:", e);
+      }
+    }
   }
 
   if (detections.tasks.length) {
@@ -497,6 +523,7 @@ async function processIncomingMessage({ message, schoolData }) {
       recommendations,
       messageId,
       source: message.source || "whatsapp_green_api",
+      autoApprove: !!senderId || message.senderRole === "director"
     });
     result.replacement = {
       noteId: saved.noteId,

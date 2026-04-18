@@ -57,8 +57,38 @@ async function updateIncidentCardStatus({ incidentId, status }) {
   invalidateCollectionCache("incident_cards");
 }
 
+async function createLinkedTaskFromIncident({ incidentId, title, description, location }) {
+  const taskRef = db.collection("director_tasks").doc();
+  const taskData = {
+    title: title || "Устранить инцидент",
+    description: description || "",
+    location: location || "",
+    assigneeId: null,
+    assigneeName: "Завхоз",
+    dueAt: null,
+    createdBy: "ai_incident_trigger",
+    status: "open",
+    source: "ai_incident",
+    linkedIncidentId: incidentId,
+    messageId: `incident-${incidentId}`,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  await taskRef.set(taskData);
+
+  // Обновляем инцидент — записываем linkedTaskId
+  await db.collection("incident_cards").doc(incidentId).set(
+    { linkedTaskId: taskRef.id },
+    { merge: true }
+  );
+
+  invalidateCollectionCache("director_tasks", "incident_cards");
+  return { taskId: taskRef.id };
+}
+
 module.exports = {
   createDirectorTask,
   updateDirectorTaskStatus,
   updateIncidentCardStatus,
+  createLinkedTaskFromIncident,
 };

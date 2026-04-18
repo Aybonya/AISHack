@@ -1,5 +1,12 @@
 const { normalizeSpace } = require("../utils");
 
+// Здесь можно прописать номера телефонов (в формате 7708... @c.us) и привязать к ним роли/имена.
+const PHONE_DIRECTORY = {
+  "77771234567@c.us": { role: "director", name: "Директор" },
+  "77001112233@c.us": { role: "teacher", name: "Учитель Марат", teacherId: "marat" },
+  "77009998877@c.us": { role: "facilities", name: "Завхоз" },
+};
+
 function extractTextFromWebhook(body) {
   const typeMessage = body?.messageData?.typeMessage;
   if (typeMessage === "textMessage") {
@@ -12,14 +19,19 @@ function extractTextFromWebhook(body) {
 }
 
 function mapWebhookToMessage(body) {
+  const senderPhone = body?.senderData?.sender || "";
+  const directoryInfo = PHONE_DIRECTORY[senderPhone] || {};
+
   return {
     text: extractTextFromWebhook(body),
     senderName:
-      body?.senderData?.senderName || body?.senderData?.senderContactName || body?.senderData?.chatName || null,
-    senderRole: "teacher",
+      directoryInfo.name || body?.senderData?.senderName || body?.senderData?.senderContactName || body?.senderData?.chatName || null,
+    senderRole: directoryInfo.role || "teacher",
+    senderTeacherId: directoryInfo.teacherId || null,
     source: "green_api_webhook",
     chatId: body?.senderData?.chatId || null,
     externalMessageId: body?.idMessage || null,
+    senderPhone,
   };
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BellOff, Pin } from "lucide-react";
+import { AlertTriangle, BellOff, Pin } from "lucide-react";
 
 import { cn, formatTime } from "@/lib/utils";
 
@@ -14,6 +14,8 @@ export function ChatListItem({
   time,
   unreadCount,
   onSelect,
+  isPinned = false,
+  isImportant = false,
 }: {
   href: string;
   active: boolean;
@@ -23,30 +25,44 @@ export function ChatListItem({
   time: string;
   unreadCount: number;
   onSelect?: () => void;
+  isPinned?: boolean;
+  isImportant?: boolean;
 }) {
   return (
     <Link
       className={cn(
         "mx-2 mb-1.5 block rounded-2xl px-3 py-2.5 transition",
         active ? "bg-[#2a3942]" : "hover:bg-white/[0.04]",
+        isImportant && !active && "border border-amber-500/20",
       )}
       href={href}
       onClick={onSelect}
     >
       <div className="flex items-start gap-2">
-        <div
-          className={cn(
-            "flex size-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white",
-            active ? "bg-[#1c7e55]" : "bg-[#24343d]",
+        {/* Avatar */}
+        <div className="relative shrink-0">
+          <div
+            className={cn(
+              "flex size-11 items-center justify-center rounded-full text-sm font-semibold text-white",
+              active ? "bg-[#1c7e55]" : isImportant ? "bg-amber-700/60" : "bg-[#24343d]",
+            )}
+          >
+            {avatar}
+          </div>
+          {isImportant && (
+            <div className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-amber-500">
+              <AlertTriangle className="size-2.5 text-black" />
+            </div>
           )}
-        >
-          {avatar}
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <div className="truncate text-sm font-medium text-white">{title}</div>
-            <div className={cn("shrink-0 text-xs", unreadCount > 0 ? "text-[#00d26a]" : "text-[#8ca0a6]")}> 
+            <div className="flex items-center gap-1.5 truncate">
+              {isPinned && <Pin className="size-3 shrink-0 text-[#6b8087]" />}
+              <span className="truncate text-sm font-medium text-white">{title}</span>
+            </div>
+            <div className={cn("shrink-0 text-xs", unreadCount > 0 ? "text-[#00d26a]" : "text-[#8ca0a6]")}>
               {formatTime(time)}
             </div>
           </div>
@@ -60,9 +76,7 @@ export function ChatListItem({
             </div>
           ) : active ? (
             <BellOff className="size-4 text-[#91a3a9]" />
-          ) : (
-            <Pin className="size-4 text-[#7f9197]" />
-          )}
+          ) : null}
         </div>
       </div>
     </Link>

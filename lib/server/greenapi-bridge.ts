@@ -466,27 +466,82 @@ function buildGenericAiMessage(messageId: string, chatId: string, createdAt: str
   };
 }
 
+const PINNED_CHAT_TEMPLATES: Array<Pick<Chat, "id" | "title" | "type" | "avatar" | "pinned">> = [
+  { id: "chat-curators", title: "Кураторы и Директор",  type: "department", avatar: "КД", pinned: true },
+  { id: "chat-general",   title: "Учителя и Директор",  type: "group",      avatar: "УД", pinned: true },
+  { id: "chat-cafeteria", title: "Столовая и Директор", type: "service",    avatar: "СД", pinned: true },
+  { id: "chat-facilities",title: "Завхоз и Директор",  type: "service",    avatar: "ЗД", pinned: true },
+];
+
 function buildChats(messages: Message[], participants: string[], seed: AppState): Chat[] {
-  const templates: Array<Pick<Chat, "id" | "title" | "type" | "avatar">> = [
-    { id: "chat-personal", title: "Личные / Неизвестные", type: "direct", avatar: "ЛС" },
-    { id: "chat-curators", title: "Кураторы и Директор", type: "department", avatar: "КД" },
-    { id: "chat-general", title: "Учителя и Директор", type: "group", avatar: "УД" },
-    { id: "chat-cafeteria", title: "Столовая и Директор", type: "service", avatar: "СД" },
-    { id: "chat-facilities", title: "Завхоз и Директор", type: "service", avatar: "ЗД" },
-  ];
+  const chats: Chat[] = [];
 
-  return templates.map((template) => {
-    const chatMessages = messages.filter((message) => message.chatId === template.id);
+  // —— 1. Закреплённые системные группы сверху ———————————————————
+  PINNED_CHAT_TEMPLATES.forEach((template) => {
+    const chatMessages = messages.filter((m) => m.chatId === template.id);
     const lastMessageId = chatMessages.at(-1)?.id ?? "";
-    const fallbackUnread = seed.chats.find((chat) => chat.id === template.id)?.unreadCount ?? 0;
+    const hasImportant = chatMessages.some(
+      (m) => m.parsedIntent === "partnership" || m.parsedIntent === "incident"
+    );
+    const fallbackUnread = seed.chats.find((c) => c.id === template.id)?.unreadCount ?? 0;
 
-    return {
+    chats.push({
       ...template,
       participants,
-      unreadCount: chatMessages.length > 0 ? Math.min(chatMessages.filter((message) => message.senderType === "teacher").length, 9) : fallbackUnread,
+      unreadCount: chatMessages.length > 0
+        ? Math.min(chatMessages.filter((m) => m.senderType === "teacher").length, 9)
+        : fallbackUnread,
       lastMessageId,
-    };
+      isImportant: hasImportant,
+    });
   });
+
+  // —— 2. Индивидуальные чаты для каждого неизвестного номера ———————————
+  const personalMessages = messages.filter((m) =>
+    !PINNED_CHAT_TEMPLATES.some((t) => t.id === m.chatId)
+  );
+
+  // Группируем по chatId (u<phoneNumber>)
+  const perPersonChat = new Map<string, Message[]>();
+  personalMessages.forEach((m) => {
+    const list = perPersonChat.get(m.chatId) ?? [];
+    list.push(m);
+    perPersonChat.set(m.chatId, list);
+  });
+
+  perPersonChat.forEach((msgs, chatId) => {
+    const lastMessageId = msgs.at(-1)?.id ?? "";
+    const lastMsg = msgs.at(-1);
+    const isImportant = msgs.some((m) => m.parsedIntent === "partnership");
+    const phone = chatId.replace(/^u-/, "");
+    // Получаем имя отправителя из сообщений
+    const senderUser = participants.length > 0
+      ? null
+      : null; // находим через senderId
+    const displayName = lastMsg?.text
+      ? phone.length > 6 ? `+${phone}` : phone
+      : chatId;
+
+    // Имя из первого сообщения senderId
+    const senderName = msgs[0]?.senderId ?? displayName;
+
+    const fallbackUnread = seed.chats.find((c) => c.id === chatId)?.unreadCount ?? 0;
+    chats.push({
+      id: chatId,
+      title: senderName,
+      type: "direct",
+      avatar: senderName.slice(0, 2).toUpperCase(),
+      participants,
+      unreadCount: Math.min(msgs.filter((m) => m.senderType !== "director" && m.senderType !== "ai").length, 9) || fallbackUnread,
+      lastMessageId,
+      pinned: false,
+      isImportant,
+      phoneNumber: phone,
+      isUnknown: true,
+    });
+  });
+
+  return chats;
 }
 
 export async function getLiveSnapshot(): Promise<LiveSnapshot> {
@@ -760,20 +815,27 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
       const linkedTasks = tasksByMessageId.get(messageId) ?? [];
       const linkedSuggestions = suggestionsByMessageId.get(messageId) ?? [];
       const isOfficialTeacher = item.senderRole === "director" || !!item.senderTeacherId;
+      // Строим chatId: для известных учителей — системные группы, для неизвестных — персональный чат по номеру
+      const rawPhone = String(item.senderPhone || item.sender || "").replace(/[^0-9]/g, "");
       const isPartnership = item.metadata?.partnership != null || item.partnership != null;
-      const chatId = inferChatId({
-        attendance: linkedAttendance,
-        incidents: linkedIncidents,
-        tasks: linkedTasks,
-        suggestions: linkedSuggestions,
-      }, isOfficialTeacher, isPartnership);
+      const perPhoneChatId = rawPhone ? `u-${rawPhone}` : `u-${messageId}`;
+      const chatId = isOfficialTeacher
+        ? inferChatId({
+            attendance: linkedAttendance,
+            incidents: linkedIncidents,
+            tasks: linkedTasks,
+            suggestions: linkedSuggestions,
+          }, isOfficialTeacher, isPartnership)
+        : perPhoneChatId;
       const createdAt = toIsoTimestamp(item.createdAt);
+      const senderDisplayName = item.senderName || (rawPhone ? `+${rawPhone}` : "Неизвестный");
       const senderId =
         item.senderRole === "director"
           ? "director-janar"
           : item.senderTeacherId ||
             ensureUser(users, runtime, {
-              name: item.senderName || "Неизвестный номер",
+              id: rawPhone ? `u-${rawPhone}` : undefined,
+              name: senderDisplayName,
               role: "teacher",
               chatId,
             });

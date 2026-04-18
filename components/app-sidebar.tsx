@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 const navigation = [
   { href: "/chats", label: "Чаты", icon: MessageCircleMore },
   { href: "/schedule", label: "Расписание", icon: CalendarDays },
+  { href: "/attendance", label: "Посещаемость", icon: Users },
   { href: "/tasks", label: "Задачи", icon: SquareCheckBig },
   { href: "/incidents", label: "Инциденты", icon: CircleAlert },
   { href: "/documents", label: "Документы", icon: Files },

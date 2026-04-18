@@ -1,7 +1,7 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Clock3, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, Clock3, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useAppState } from "@/components/providers/app-provider";
 import type { AppState } from "@/lib/types";
@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 const START_HOUR = 7;
 const END_HOUR = 18;
-const HOUR_HEIGHT = 72;
+const HOUR_HEIGHT = 120;
 
 const WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const WEEKDAY_LONG = [
@@ -37,7 +37,17 @@ type CalendarEvent = {
   endTime: string;
   kind: CalendarEventKind;
   badge?: string;
+  isDirectorEvent?: boolean;
 };
+
+interface DirectorEvent {
+  id: string;
+  title: string;
+  startTime: string;
+  endTime?: string;
+  description?: string;
+  participants?: string[];
+}
 
 function addDays(date: Date, amount: number) {
   const next = new Date(date);
@@ -324,11 +334,25 @@ function CalendarEventModal({
             <Clock3 className="size-4 text-[#25d366]" />
             {event.startTime} - {event.endTime}
           </div>
-          <div>Класс: {event.className}</div>
-          <div>Учитель: {event.teacher}</div>
-          <div>Кабинет: {event.room}</div>
+          <div>{event.isDirectorEvent ? "Описание" : "Класс"}: {event.className}</div>
+          <div>Учитель/Участники: {event.teacher}</div>
+          {event.room && <div>Кабинет: {event.room}</div>}
           <div className="text-[#95aaae]">{event.meta}</div>
         </div>
+        
+        {event.isDirectorEvent && (
+          <div className="mt-6 flex justify-end">
+            <button 
+              className="flex items-center gap-2 text-red-400 hover:text-red-300 text-sm font-medium transition"
+              onClick={async () => {
+                await fetch(`/api/live/events/${event.id}`, { method: "DELETE" });
+                onClose();
+              }}
+            >
+              <Trash2 className="size-4" /> Удалить событие
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -340,9 +364,61 @@ export function CalendarWeekView() {
   const [anchorDate, setAnchorDate] = useState(today);
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [directorEvents, setDirectorEvents] = useState<DirectorEvent[]>([]);
+  const [draftEventSlot, setDraftEventSlot] = useState<{date: Date; hour: number} | null>(null);
+
+  async function fetchDirectorEvents() {
+    try {
+      const res = await fetch("/api/live/events");
+      if (res.ok) {
+        const data = await res.json();
+        setDirectorEvents(data.events ?? []);
+      }
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => {
+    fetchDirectorEvents();
+  }, []);
 
   const weekDates = useMemo(() => buildWeekDates(anchorDate), [anchorDate]);
-  const events = useMemo(() => buildCalendarEvents(state), [state]);
+  
+  const allEvents = useMemo(() => {
+    const baseEvents = buildCalendarEvents(state);
+    
+    // Подмешиваем события директора
+    const mappedEvents: CalendarEvent[] = directorEvents.map((e) => {
+      const d = new Date(e.startTime);
+      const startTime = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      let endTime = "";
+      if (e.endTime) {
+        endTime = new Date(e.endTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      } else {
+        const endD = new Date(d);
+        endD.setHours(d.getHours() + 1);
+        endTime = endD.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      }
+
+      return {
+        id: e.id,
+        title: e.title,
+        detail: e.description || "Событие",
+        meta: "Директор",
+        teacher: e.participants?.join(", ") || "Участники не указаны",
+        className: e.description || "",
+        room: "",
+        weekday: d.getDay() === 0 ? 7 : d.getDay(),
+        startTime,
+        endTime,
+        kind: "meeting",
+        badge: "Событие",
+        isDirectorEvent: true,
+      };
+    });
+
+    return [...baseEvents, ...mappedEvents];
+  }, [state, directorEvents]);
+
   const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, index) => START_HOUR + index);
   const dayHeight = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
   const selectedKey = toLocalDateKey(selectedDate);
@@ -442,12 +518,14 @@ export function CalendarWeekView() {
                   const dateKey = toLocalDateKey(date);
                   const isSelected = dateKey === selectedKey;
                   const isToday = dateKey === todayKey;
-                  const dayEvents = events.filter((event) => event.weekday === index + 1);
+                  const dayEvents = allEvents.filter((event) => event.weekday === index + 1 && (
+                     !event.isDirectorEvent || toLocalDateKey(new Date(directorEvents.find(e => e.id === event.id)?.startTime || new Date())) === dateKey
+                  ));
 
                   return (
                     <div
                       className={cn(
-                        "relative border-r border-white/[0.05] last:border-r-0",
+                        "relative border-r border-white/[0.05] last:border-r-0 group",
                         isSelected && "bg-[#0d1815]",
                         !isSelected && isToday && "bg-[#0c1512]",
                       )}
@@ -456,10 +534,13 @@ export function CalendarWeekView() {
                     >
                       {hours.map((hour) => (
                         <div
-                          className="absolute inset-x-0 border-t border-white/[0.035]"
+                          className="absolute inset-x-0 border-t border-white/[0.035] cursor-pointer hover:bg-white/[0.02] transition"
                           key={hour}
-                          style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}
-                        />
+                          onClick={() => setDraftEventSlot({ date, hour })}
+                          style={{ top: (hour - START_HOUR) * HOUR_HEIGHT, height: HOUR_HEIGHT }}
+                        >
+                          <div className="hidden group-hover:flex size-full items-center justify-center text-[24px] text-[#25d366]/40">+</div>
+                        </div>
                       ))}
 
                       {dayEvents.map((event) => {
@@ -476,7 +557,7 @@ export function CalendarWeekView() {
                         return (
                           <button
                             className={cn(
-                              "absolute left-2.5 right-2.5 flex flex-col overflow-hidden rounded-[18px] border px-4 py-3 text-left shadow-[0_12px_28px_rgba(0,0,0,0.18)] transition",
+                              "absolute left-2.5 right-2.5 flex w-[calc(100%-20px)] flex-col overflow-hidden rounded-[14px] border p-2.5 text-left shadow-[0_12px_28px_rgba(0,0,0,0.18)] transition",
                               cardStyles[event.kind],
                             )}
                             key={event.id}
@@ -484,19 +565,25 @@ export function CalendarWeekView() {
                             style={{ height, top }}
                             type="button"
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="text-[15px] font-semibold leading-5 text-white">{event.title}</div>
+                            <div className="flex w-full shrink-0 items-start justify-between gap-1.5 overflow-hidden">
+                              <div className="truncate text-[13px] font-semibold leading-tight text-white">
+                                {event.title}
+                              </div>
                               {event.badge ? (
-                                <span className="rounded-full border border-[#2aa573]/40 bg-[#0d241c] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#81f0bf]">
+                                <span className="shrink-0 rounded-full border border-[#2aa573]/40 bg-[#0d241c] px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-[#81f0bf]">
                                   {event.badge}
                                 </span>
                               ) : null}
                             </div>
-                            <div className="mt-1 text-[13px] leading-5 text-[#ebf1f3]">{event.detail}</div>
-                            <div className="mt-auto pt-3 text-xs font-medium text-[#d0dadd]">
+                            <div className="mt-1 w-full shrink-0 whitespace-normal break-words text-[11px] leading-tight text-[#ebf1f3] line-clamp-2">
+                              {event.detail}
+                            </div>
+                            <div className="mt-auto pt-1 shrink-0 text-[10px] font-medium text-[#d0dadd]">
                               {event.startTime} - {event.endTime}
                             </div>
-                            <div className="mt-1 truncate text-xs leading-5 text-[#9fb3b9]">{event.meta}</div>
+                            <div className="mt-0.5 w-full shrink-0 truncate text-[10px] leading-tight text-[#9fb3b9]">
+                              {event.meta}
+                            </div>
                           </button>
                         );
                       })}
@@ -509,7 +596,29 @@ export function CalendarWeekView() {
         </section>
       </div>
 
-      {selectedEvent ? <CalendarEventModal event={selectedEvent} onClose={() => setSelectedEvent(null)} /> : null}
+      {selectedEvent ? (
+        <CalendarEventModal 
+          event={selectedEvent} 
+          onClose={() => {
+            setSelectedEvent(null);
+            if (selectedEvent.isDirectorEvent) {
+              fetchDirectorEvents(); // Обновить если удалили
+            }
+          }} 
+        />
+      ) : null}
+
+      {draftEventSlot ? (
+        <CreateEventModal
+          initialDate={draftEventSlot.date}
+          initialHour={draftEventSlot.hour}
+          onClose={() => setDraftEventSlot(null)}
+          onCreated={() => {
+            setDraftEventSlot(null);
+            fetchDirectorEvents();
+          }}
+        />
+      ) : null}
     </>
   );
 }
