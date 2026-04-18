@@ -18,6 +18,7 @@ export type ParsedIntent =
   | "incident"
   | "task"
   | "substitution"
+  | "partnership"
   | "generic";
 
 export type IncidentPriority = "low" | "medium" | "high";

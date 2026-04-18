@@ -326,11 +326,13 @@ async function smartAIAnalyze(text, teacherAliases) {
 2. incident: {"title": "Кратко", "summary": "Подробно", "priority": "low"|"medium"|"high"}
 3. replacement: {"teacherName": "ФИО или Имя", "dayKey": "monday|tuesday|wednesday|thursday|friday|saturday", "lessonNumber": 4, "classId": "11A"}
 4. tasks: [{"title": "...", "dueHint": "...", "assigneeName": "..."}]
+5. partnership: {"topic": "Краткая суть", "priority": "high"}
 
 ИГНОРИРОВАНИЕ СПАМА:
 Если сообщение вообще не относится к школьным делам (например: вопросы "как дела", личные диалоги, спам, сторонние эвенты вне школы, рассылка), верни абсолютно пустой JSON объект: {}
 
 ВАЖНО ДЛЯ REPLACEMENT (ЗАМЕН):
+Если замена требуется на ВЕСЬ ДЕНЬ ("все уроки", "не приду", "заболела" без указания урока), установи "lessonNumber": null и "classId": null.
 Если день (dayKey) не указан в тексте, но по смыслу подразумевается замена "на сегодня", используй ТЕКУЩИЙ ДЕНЬ НЕДЕЛИ (указан выше). Если "на завтра" — укажи завтрашний день недели.
 
 Текст сообщения:
@@ -397,6 +399,7 @@ async function processIncomingMessage({ message, schoolData }) {
     if (aiResult.attendance) detections.attendance = aiResult.attendance;
     if (aiResult.incident) detections.incident = aiResult.incident;
     if (aiResult.tasks) detections.tasks = aiResult.tasks;
+    if (aiResult.partnership) detections.partnership = aiResult.partnership;
     if (aiResult.replacement) {
       parsedAbsence.intent = "teacher_absence";
       if (aiResult.replacement.teacherName) {
@@ -446,6 +449,7 @@ async function processIncomingMessage({ message, schoolData }) {
     replacement: null,
     resolvedTeacherId: senderId || null,
     messageDateKey,
+    partnership: detections.partnership || null,
   };
 
   // ── 6. Сохраняем события ───────────────────────────────────────────────────

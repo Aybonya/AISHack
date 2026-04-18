@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -9,6 +9,7 @@ import {
   Files,
   MessageCircleMore,
   SquareCheckBig,
+  Users,
 } from "lucide-react";
 
 import { useAppState } from "@/components/providers/app-provider";
@@ -20,6 +21,7 @@ const navigation = [
   { href: "/tasks", label: "Задачи", icon: SquareCheckBig },
   { href: "/incidents", label: "Инциденты", icon: CircleAlert },
   { href: "/documents", label: "Документы", icon: Files },
+  { href: "/teacher-schedule", label: "Учителя", icon: Users },
 ];
 
 export function AppSidebar() {
