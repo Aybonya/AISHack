@@ -140,13 +140,39 @@ function buildReplacementCandidates({
     if (load.baseSubjectId !== targetEntry.baseSubjectId) {
       return;
     }
-    if (load.teacherId === absentTeacherId || busyTeacherIds.has(load.teacherId)) {
+    if (load.teacherId === absentTeacherId) {
       return;
     }
 
     const teacher = teachersById.get(load.teacherId);
     if (!teacher || teacher.active === false) {
       return;
+    }
+
+    const isBusy = busyTeacherIds.has(load.teacherId);
+    let mergeClass = null;
+
+    if (isBusy) {
+      // Проверяем, может ли учитель объединить классы (ведет ли он этот же предмет в это же время другому классу)
+      const busyLesson = scheduleEntries.find(
+        (e) =>
+          e.dayKey === targetEntry.dayKey &&
+          e.lessonNumber === targetEntry.lessonNumber &&
+          (e.teacherIds || []).includes(load.teacherId)
+      );
+
+      if (busyLesson && busyLesson.baseSubjectId === targetEntry.baseSubjectId) {
+        const targetGrade = parseInt(targetEntry.classId, 10);
+        const busyGrade = parseInt(busyLesson.classId, 10);
+
+        if (!isNaN(targetGrade) && targetGrade === busyGrade) {
+          mergeClass = busyLesson.classId;
+        } else {
+          return; // Занят другой параллелью, объединять нельзя
+        }
+      } else {
+        return; // Занят другим предметом, пропускаем
+      }
     }
 
     const candidate = candidates.get(load.teacherId) || {
@@ -163,26 +189,47 @@ function buildReplacementCandidates({
     candidate.totalSubjectHours += hours;
     candidate.score += hours;
 
+    if (mergeClass) {
+      candidate.score += 3; // Приоритет ниже, чем у свободного учителя
+      candidate.reasons.push(`Объединение с классом ${mergeClass}`);
+    } else {
+      candidate.score += 15; // Свободный учитель получает большой бонус
+      candidate.reasons.push("Свободен(на) в это время");
+    }
+
     if (load.classId === targetEntry.classId) {
       candidate.sameClassHours += hours;
       candidate.score += 10;
-      candidate.reasons.push("already teaches this class");
+      candidate.reasons.push("Уже преподает у этого класса");
     }
 
     if ((teacher.baseSubjectIds || []).includes(targetEntry.baseSubjectId)) {
       candidate.score += 5;
-      candidate.reasons.push("same base subject");
+      candidate.reasons.push("Совпадает базовый предмет");
     }
 
     candidates.set(load.teacherId, candidate);
   });
 
-  return Array.from(candidates.values())
+  let sortedCandidates = Array.from(candidates.values())
     .sort((a, b) => b.score - a.score)
     .map((candidate) => ({
       ...candidate,
       reasons: [...new Set(candidate.reasons)],
     }));
+
+  // Внедряем крайний вариант (Куратор), если вообще нет кандидатов или как резервный вариант
+  sortedCandidates.push({
+    teacherId: "curator_replacement",
+    fullName: "Куратор параллели",
+    shortName: "Куратор",
+    score: -1,
+    reasons: ["Крайняя мера: назначение куратора"],
+    sameClassHours: 0,
+    totalSubjectHours: 0,
+  });
+
+  return sortedCandidates;
 }
 
 function recommendReplacements(data, parsedNote) {

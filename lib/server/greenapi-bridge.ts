@@ -308,21 +308,34 @@ function inferChatId(params: {
   incidents: Incident[];
   tasks: Task[];
   suggestions: SubstitutionSuggestion[];
-}) {
+}, isOfficialTeacher: boolean, isPartnership: boolean) {
+  // Неизвестные номера идут в Личные, если только это не важное обращение (партнерство)
+  if (!isOfficialTeacher && !isPartnership) {
+    return "chat-personal";
+  }
+
+  // Если это важная инфа/партнерство от неизвестного (или известного) — кидаем в общий чат, чтобы директор увидел
+  if (isPartnership) {
+    return "chat-personal"; // Оставляем в личных, но пометим интентом, чтобы фильтр "Важно" подхватил
+  }
+
   if (params.incidents.length > 0) {
-    return "chat-facilities";
+    return "chat-facilities"; // 4 группа (завхоз)
   }
 
   if (params.attendance.length > 0) {
-    const className = params.attendance[0]?.className ?? "";
-    const grade = Number(String(className).match(/\d+/)?.[0] ?? 0);
-    return grade > 0 && grade <= 4 ? "chat-primary" : "chat-general";
+    return "chat-cafeteria"; // 3 группа (столовая)
   }
 
-  if (params.tasks.length > 0 || params.suggestions.length > 0) {
-    return "chat-general";
+  if (params.tasks.length > 0) {
+    return "chat-curators"; // 1 группа (кураторы)
   }
 
+  if (params.suggestions.length > 0) {
+    return "chat-general"; // 2 группа (учителя - расписание/замены)
+  }
+
+  // По умолчанию все школьные вопросы в общий чат учителей
   return "chat-general";
 }
 
@@ -455,10 +468,11 @@ function buildGenericAiMessage(messageId: string, chatId: string, createdAt: str
 
 function buildChats(messages: Message[], participants: string[], seed: AppState): Chat[] {
   const templates: Array<Pick<Chat, "id" | "title" | "type" | "avatar">> = [
-    { id: "chat-general", title: "Общий чат учителей", type: "group", avatar: "ОЧ" },
-    { id: "chat-primary", title: "Начальные классы", type: "department", avatar: "НК" },
-    { id: "chat-facilities", title: "Завхоз", type: "service", avatar: "ZH" },
-    { id: "chat-cafeteria", title: "Столовая", type: "service", avatar: "СТ" },
+    { id: "chat-personal", title: "Личные / Неизвестные", type: "direct", avatar: "ЛС" },
+    { id: "chat-curators", title: "Кураторы и Директор", type: "department", avatar: "КД" },
+    { id: "chat-general", title: "Учителя и Директор", type: "group", avatar: "УД" },
+    { id: "chat-cafeteria", title: "Столовая и Директор", type: "service", avatar: "СД" },
+    { id: "chat-facilities", title: "Завхоз и Директор", type: "service", avatar: "ЗД" },
   ];
 
   return templates.map((template) => {
@@ -745,25 +759,29 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
       const linkedIncidents = incidentsByMessageId.get(messageId) ?? [];
       const linkedTasks = tasksByMessageId.get(messageId) ?? [];
       const linkedSuggestions = suggestionsByMessageId.get(messageId) ?? [];
+      const isOfficialTeacher = item.senderRole === "director" || !!item.senderTeacherId;
+      const isPartnership = item.metadata?.partnership != null || item.partnership != null;
       const chatId = inferChatId({
         attendance: linkedAttendance,
         incidents: linkedIncidents,
         tasks: linkedTasks,
         suggestions: linkedSuggestions,
-      });
+      }, isOfficialTeacher, isPartnership);
       const createdAt = toIsoTimestamp(item.createdAt);
       const senderId =
         item.senderRole === "director"
           ? "director-janar"
           : item.senderTeacherId ||
             ensureUser(users, runtime, {
-              name: item.senderName || "Учитель",
+              name: item.senderName || "Неизвестный номер",
               role: "teacher",
               chatId,
             });
 
       const parsedIntent: ParsedIntent =
-        linkedTasks.length > 0
+        isPartnership
+          ? "partnership"
+          : linkedTasks.length > 0
           ? "task"
           : linkedIncidents.length > 0
             ? "incident"
@@ -795,7 +813,9 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
       }
 
       if (linkedSuggestions.length > 0) {
-        messages.push(buildSuggestionCard(messageId, chatId, createdAt, linkedSuggestions[0]));
+        linkedSuggestions.forEach((suggestion) => {
+          messages.push(buildSuggestionCard(`${messageId}-${suggestion.id}`, chatId, createdAt, suggestion));
+        });
         return;
       }
 

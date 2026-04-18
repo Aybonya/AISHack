@@ -10,6 +10,8 @@ import { useAppState } from "@/components/providers/app-provider";
 const filters = [
   { key: "all", label: "Все" },
   { key: "unread", label: "Непрочитанное" },
+  { key: "personal", label: "Личные" },
+  { key: "attention", label: "Внимание" },
   { key: "favorites", label: "Избранное" },
 ] as const;
 
@@ -41,6 +43,19 @@ export function ChatList() {
 
     if (activeFilter === "favorites") {
       return favoriteChatIds.has(chat.id);
+    }
+
+    if (activeFilter === "personal") {
+      return chat.id === "chat-personal";
+    }
+
+    if (activeFilter === "attention") {
+      // Требуют внимания: чаты с инцидентами, неподтвержденными заменами или предложениями о сотрудничестве (partnership)
+      const hasUnresolved = state.messages.some(m => 
+        m.chatId === chat.id && 
+        (m.parsedIntent === "incident" || m.parsedIntent === "partnership" || (m.parsedIntent === "substitution" && m.metadata?.confirmed === false))
+      );
+      return hasUnresolved;
     }
 
     return true;
