@@ -1,0 +1,8 @@
+node_modules/
+firebase-service-account.json
+.env
+npm-debug.log*
+aishack-firebase-adminsdk-fbsvc-ef402110b8.json
+__pycache__/
+*.pyc
+.Python
