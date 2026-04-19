@@ -1,13 +1,29 @@
 const { normalizeClassId, normalizeSpace, parseLessonNumber } = require("../utils");
 
 const DAY_PATTERNS = [
-  ["monday", ["дүйсенбі", "понедельник", "monday"]],
-  ["tuesday", ["сейсенбі", "вторник", "tuesday"]],
-  ["wednesday", ["сәрсенбі", "среда", "wednesday"]],
-  ["thursday", ["бейсенбі", "четверг", "thursday"]],
-  ["friday", ["жұма", "пятница", "friday"]],
-  ["saturday", ["сенбі", "суббота", "saturday"]],
+  ["monday", ["дүйсенбі", "дүйсенбіде", "понедельник", "понедельнику", "понедельнике", "monday"]],
+  ["tuesday", ["сейсенбі", "сейсенбіде", "вторник", "вторнику", "вторнике", "вторник", "вторнику", "во вторник", "tuesday"]],
+  ["wednesday", ["сәрсенбі", "сәрсенбіде", "среда", "среду", "среде", "wednesday"]],
+  ["thursday", ["бейсенбі", "бейсенбіде", "четверг", "четвергу", "четверге", "в четверг", "thursday"]],
+  ["friday", ["жұма", "жұмада", "пятница", "пятницу", "пятнице", "в пятницу", "friday"]],
+  ["saturday", ["сенбі", "сенбіде", "суббота", "субботу", "субботе", "в субботу", "saturday"]],
 ];
+
+const PREFERRED_SUBSTITUTES = {
+  akyrap_akerke: ["alimbekova_u_s", "tanatar_madina"],
+};
+
+function candidateSupportsEntry(candidateTeacher, targetEntry) {
+  const candidateSubjects = new Set(candidateTeacher.baseSubjectIds || []);
+  const comparableSubjectIds = [
+    targetEntry.baseSubjectId,
+    ...(targetEntry.baseSubjectId === "ielts" ? ["agylshyn_tili", "agylshyn_tili_ubt"] : []),
+    ...(targetEntry.baseSubjectId === "agylshyn_tili_ubt" ? ["agylshyn_tili"] : []),
+    ...(targetEntry.baseSubjectId === "agylshyn_tili" ? ["agylshyn_tili_ubt"] : []),
+  ];
+
+  return comparableSubjectIds.some((subjectId) => candidateSubjects.has(subjectId));
+}
 
 function buildTeacherIndex(teachers) {
   const byId = new Map();
@@ -119,13 +135,22 @@ function pickAbsentEntries(scheduleEntries, parsedNote) {
   });
 }
 
-function buildReplacementCandidates({
-  targetEntry,
-  scheduleEntries,
-  teacherLoad,
-  teachersById,
-  absentTeacherId,
-}) {
+function buildReplacementCandidates({ targetEntry, scheduleEntries, teacherLoad, teachersById, absentTeacherId, substituteTeacherId }) {
+  if (substituteTeacherId && teachersById.has(substituteTeacherId)) {
+    const explicitTeacher = teachersById.get(substituteTeacherId);
+    return [
+      {
+        teacherId: substituteTeacherId,
+        fullName: explicitTeacher.fullName,
+        shortName: explicitTeacher.shortName,
+        score: 1000,
+        reasons: ["Выбран вручную директором"],
+        sameClassHours: 0,
+        totalSubjectHours: 0,
+      }
+    ];
+  }
+
   const busyTeacherIds = new Set(
     scheduleEntries
       .filter(
@@ -136,6 +161,29 @@ function buildReplacementCandidates({
   );
 
   const candidates = new Map();
+  const preferredSubstituteIds = PREFERRED_SUBSTITUTES[absentTeacherId] || [];
+
+  preferredSubstituteIds.forEach((teacherId, index) => {
+    const teacher = teachersById.get(teacherId);
+    if (!teacher || teacher.active === false) {
+      return;
+    }
+
+    if (!candidateSupportsEntry(teacher, targetEntry) || busyTeacherIds.has(teacherId)) {
+      return;
+    }
+
+    candidates.set(teacherId, {
+      teacherId,
+      fullName: teacher.fullName,
+      shortName: teacher.shortName,
+      score: 900 - index,
+      reasons: ["Приоритетная замена по кафедре английского"],
+      sameClassHours: 0,
+      totalSubjectHours: 0,
+    });
+  });
+
   teacherLoad.forEach((load) => {
     if (load.baseSubjectId !== targetEntry.baseSubjectId) {
       return;
@@ -175,7 +223,8 @@ function buildReplacementCandidates({
       }
     }
 
-    const candidate = candidates.get(load.teacherId) || {
+    const existingCandidate = candidates.get(load.teacherId);
+    const candidate = existingCandidate || {
       teacherId: load.teacherId,
       fullName: teacher.fullName,
       shortName: teacher.shortName,
@@ -188,6 +237,9 @@ function buildReplacementCandidates({
     const hours = Number(load.hours || 0);
     candidate.totalSubjectHours += hours;
     candidate.score += hours;
+    if (existingCandidate) {
+      candidate.reasons.push("Есть нагрузка по близкому предмету");
+    }
 
     if (mergeClass) {
       candidate.score += 3; // Приоритет ниже, чем у свободного учителя
@@ -246,6 +298,7 @@ function recommendReplacements(data, parsedNote) {
       teacherLoad: data.teacherLoad,
       teachersById,
       absentTeacherId: parsedNote.teacherId,
+      substituteTeacherId: parsedNote.substituteTeacherId,
     }),
   }));
 }

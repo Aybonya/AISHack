@@ -132,7 +132,7 @@ export function TeacherScheduleView() {
                       </span>
                     </div>
                     <div className="border border-[#2F2F2F] rounded-lg overflow-hidden">
-                      <ScheduleTable entries={teacherEntries} state={state} hideTeacherColumn />
+                      <ScheduleTable entries={teacherEntries} state={state} />
                     </div>
                   </div>
                 );
@@ -182,14 +182,16 @@ function ScheduleTable({ entries, state, hideTeacherColumn = false, hideTimeColu
         </tr>
       </thead>
       <tbody className="text-[#EBEBEB]">
-        {entries.map((lesson: any) => {
+        {entries.map((lesson: any, idx: number) => {
+          const isAbsent = lesson.substitutionStatus && lesson.substitutionStatus !== "none" && lesson.substitutionStatus !== "rejected";
           const isSubstituteHere = lesson.substituteUserId && lesson.substitutionStatus === "confirmed";
           const teacher = state.users.find((u: any) => u.id === lesson.teacherUserId);
           const subTeacher = state.users.find((u: any) => u.id === lesson.substituteUserId);
+          const rowKey = `${lesson.id ?? "entry"}_${lesson.teacherUserId ?? ""}_${idx}`;
 
           return (
             <tr
-              key={lesson.id}
+              key={rowKey}
               className="border-b border-[#2F2F2F] hover:bg-[#2F2F2F]/50 transition-colors group last:border-b-0"
             >
               {/* Урок */}
@@ -213,7 +215,7 @@ function ScheduleTable({ entries, state, hideTeacherColumn = false, hideTimeColu
                     <div className="size-5 rounded-full bg-[#5C5C5C] flex items-center justify-center text-[10px] font-medium">
                       {teacher?.name?.slice(0, 1) || "?"}
                     </div>
-                    <span className={isSubstituteHere ? "line-through text-[#9B9A97]" : ""}>
+                    <span className={isAbsent ? "line-through text-[#9B9A97]" : ""}>
                       {teacher?.name || "Не назначен"}
                     </span>
                   </div>
@@ -239,7 +241,7 @@ function ScheduleTable({ entries, state, hideTeacherColumn = false, hideTimeColu
 
               {/* Статус / Замена */}
               <td className="py-3 px-3 border-r border-[#2F2F2F] w-[260px]">
-                {isSubstituteHere ? (
+                {lesson.substitutionStatus === "confirmed" ? (
                   <div className="flex items-center gap-2 text-[#E255A1]">
                     <span className="inline-flex items-center rounded bg-[#E255A1]/20 px-1.5 py-0.5 text-xs font-medium text-[#E255A1]">
                       Замена
@@ -251,6 +253,20 @@ function ScheduleTable({ entries, state, hideTeacherColumn = false, hideTimeColu
                       </div>
                       <span className="text-sm">{subTeacher?.name}</span>
                     </div>
+                  </div>
+                ) : lesson.substitutionStatus === "candidate_found" || lesson.substitutionStatus === "pending_approval" ? (
+                  <div className="flex items-center gap-2 text-[#F2C94C]">
+                    <span className="inline-flex items-center rounded bg-[#F2C94C]/20 px-1.5 py-0.5 text-xs font-medium text-[#F2C94C]">
+                      Кандидат
+                    </span>
+                    <ArrowRight className="size-3" />
+                    <span className="text-sm">{subTeacher?.name || "Ожидает"}</span>
+                  </div>
+                ) : lesson.substitutionStatus === "needs_replacement" ? (
+                  <div className="flex items-center gap-2 text-[#EB5757]">
+                    <span className="inline-flex items-center rounded bg-[#EB5757]/20 px-1.5 py-0.5 text-xs font-medium text-[#EB5757]">
+                      🔴 Требуется замена
+                    </span>
                   </div>
                 ) : (
                   <span className="text-[#9B9A97] text-sm flex items-center gap-2">

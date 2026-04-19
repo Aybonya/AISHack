@@ -165,6 +165,15 @@ export function AIActionCard({
     );
   }
 
+  if (card.cardType === "generic") {
+    return (
+      <CardShell accent="border-[#c896ff]">
+        <div className="text-base font-medium text-white">{card.title}</div>
+        <div className="mt-1 text-sm leading-6 text-[#e8dafd]">{card.summary}</div>
+      </CardShell>
+    );
+  }
+
   return (
     <CardShell>
       <div className="text-base font-medium text-white">{card.title}</div>

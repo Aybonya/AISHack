@@ -241,11 +241,11 @@
           <h2>Симулировать WhatsApp сообщение</h2>
           <div style="margin-bottom:10px">
             <label style="font-size:13px;color:var(--muted);display:block;margin-bottom:4px">Имя отправителя (учитель из базы):</label>
-            <input id="senderName" type="text" value="Нахмадинов Марат"
+            <input id="senderName" type="text" value="Ақырап А."
               style="width:100%;padding:10px 14px;border:1px solid var(--line);border-radius:14px;font:inherit;background:white;margin-bottom:10px"
             />
           </div>
-          <textarea id="messageText">Нахмадинов Марат заболел, нужна замена во вторник 2 урок у 8D</textarea>
+          <textarea id="messageText">Я заболела в пятницу, не смогу выйти. Поставьте, пожалуйста, замену на мои уроки английского языка и IELTS.</textarea>
           <div class="row">
             <button id="sendTeacher">Отправить как учитель</button>
             <button id="sendDirector" class="secondary">Отправить как директор</button>
@@ -408,7 +408,7 @@
       async function sendMessage(senderRole) {
         const text = document.getElementById("messageText").value;
         const nameInput = document.getElementById("senderName");
-        const senderName = nameInput ? nameInput.value : (senderRole === "director" ? "Директор" : "Нахмадинов Марат");
+        const senderName = nameInput ? nameInput.value : (senderRole === "director" ? "Директор" : "Ақырап А.");
 
         const payload = {
           text,

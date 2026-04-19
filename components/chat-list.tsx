@@ -141,7 +141,7 @@ export function ChatList() {
               const href = `/chats/${chat.id}`;
               return (
                 <ChatListItem
-                  active={pathname === href || ((pathname === "/chats" || pathname === "/") && chat.id === "chat-general")}
+                  active={pathname === href || ((pathname === "/chats" || pathname === "/") && (chat.id === "chat-general" || chat.title === "Учителя и Директор"))}
                   avatar={chat.avatar}
                   href={href}
                   isImportant={chat.isImportant}

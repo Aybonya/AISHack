@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AppState,
   AttendanceReport,
   Chat,
@@ -53,7 +53,7 @@ const users: User[] = [
     chatId: "chat-primary",
   },
   {
-    id: "nazken",
+    id: "77086187050@c.us",
     name: "Назкен М.",
     role: "admin",
     avatar: "НМ",
@@ -61,10 +61,10 @@ const users: User[] = [
     qualifications: ["procurement", "events"],
     isAvailable: true,
     availabilitySlots: [1, 2, 3, 4, 5, 6],
-    chatId: "chat-general",
+    chatId: "chat-curators",
   },
   {
-    id: "daulet",
+    id: "77713364671@c.us",
     name: "Даулет",
     role: "facilities",
     avatar: "Д",
@@ -174,7 +174,40 @@ const users: User[] = [
     chatId: "chat-general",
   },
   {
-    id: "saltanat",
+    id: "77479609925@c.us",
+    name: "Ақырап А.",
+    role: "teacher",
+    avatar: "АА",
+    subjects: ["English", "IELTS"],
+    qualifications: ["Senior English Teacher", "IELTS Examiner"],
+    isAvailable: true,
+    availabilitySlots: [1, 2, 3, 4, 5, 6],
+    chatId: "chat-english",
+  },
+  {
+    id: "77088908028@c.us",
+    name: "Алимбекова У.",
+    role: "teacher",
+    avatar: "АУ",
+    subjects: ["English", "IELTS"],
+    qualifications: ["English Teacher", "IELTS Coach"],
+    isAvailable: true,
+    availabilitySlots: [1, 2, 3, 4, 5, 6],
+    chatId: "chat-english",
+  },
+  {
+    id: "tanatar-m",
+    name: "Таңатар М.",
+    role: "teacher",
+    avatar: "ТМ",
+    subjects: ["English", "IELTS"],
+    qualifications: ["English Teacher"],
+    isAvailable: true,
+    availabilitySlots: [1, 2, 3, 4, 5, 6],
+    chatId: "chat-english",
+  },
+  {
+    id: "77786938964@c.us",
     name: "Салтанат",
     role: "cafeteria",
     avatar: "С",
@@ -185,19 +218,40 @@ const users: User[] = [
     chatId: "chat-cafeteria",
   },
   {
+    id: "77475924170@c.us",
+    name: "Арман (Гость)",
+    role: "teacher",
+    avatar: "АГ",
+    subjects: [],
+    qualifications: ["external"],
+    isAvailable: true,
+    availabilitySlots: [1, 2, 3, 4, 5, 6],
+    chatId: "chat-general",
+  },
+  {
     id: "ai-assistant",
-    name: "AISana",
+    name: "Ассистент",
     role: "ai",
     avatar: "AI",
     subjects: [],
     qualifications: ["operations orchestration"],
     isAvailable: true,
     availabilitySlots: [1, 2, 3, 4, 5, 6],
-    chatId: "chat-general",
+    chatId: "chat-aisana",
   },
 ];
 
 const messages: Message[] = [
+  {
+    id: "msg-aisana-welcome",
+    chatId: "chat-aisana",
+    senderId: "ai-assistant",
+    senderType: "ai",
+    text: "Я AISana. Можешь писать мне как в ChatGPT или отправлять длинные голосовые сообщения, а я превращу их в задачи, сообщения, переходы по разделам и остальные доступные действия внутри системы.",
+    createdAt: withTime(today, "00:24"),
+    kind: "text",
+    parsedIntent: "generic",
+  },
   {
     id: "msg-welcome",
     chatId: "chat-general",
@@ -370,7 +424,7 @@ const incidents: Incident[] = [
     description: "В кабинете 12 требуется ремонт парты до начала 3 урока.",
     location: "Кабинет 12",
     priority: "medium",
-    assignedToUserId: "daulet",
+    assignedToUserId: "77713364671@c.us",
     status: "new",
     sourceMessageId: "msg-incident",
     createdAt: withTime(today, "08:12"),
@@ -413,6 +467,38 @@ const tasks: Task[] = [
 const teacherAbsences: TeacherAbsence[] = [];
 
 const documentChunks: DocumentChunk[] = [
+  {
+    id: "doc-76-1",
+    docTitle: "Приказ МОН РК №76",
+    sectionTitle: "Организация внутришкольных приказов",
+    content:
+      "Во внутреннем приказе школы обязательно указываются основание, цель, список ответственных лиц, сроки исполнения и форма итогового контроля со стороны администрации.",
+    tags: ["приказ 76", "внутренний приказ", "ответственные", "контроль"],
+  },
+  {
+    id: "doc-76-2",
+    docTitle: "Приказ МОН РК №76",
+    sectionTitle: "Командирование и поручения",
+    content:
+      "Если приказ связан с выездом, сопровождением или особым поручением, необходимо зафиксировать даты, маршрут или место проведения, состав участников, ответственного сопровождающего и меры безопасности.",
+    tags: ["приказ 76", "выезд", "сопровождение", "безопасность"],
+  },
+  {
+    id: "doc-110-1",
+    docTitle: "Приказ МОН РК №110",
+    sectionTitle: "Отчетная форма",
+    content:
+      "Для отчетов по утвержденной форме сначала собираются основание отчета, период, ответственные исполнители, численные показатели и краткий аналитический вывод о результате или проблеме.",
+    tags: ["приказ 110", "отчет", "форма", "показатели"],
+  },
+  {
+    id: "doc-110-2",
+    docTitle: "Приказ МОН РК №110",
+    sectionTitle: "Язык и структура",
+    content:
+      "Официальный отчет оформляется в деловом стиле: вводная часть, фактические данные, принятые меры, выводы и предложения. При нехватке данных допускается запрос уточнений перед финальной редакцией.",
+    tags: ["приказ 110", "деловой стиль", "выводы", "уточнения"],
+  },
   {
     id: "doc-130-1",
     docTitle: "Приказ МОН РК №130",
@@ -461,81 +547,82 @@ const documentChunks: DocumentChunk[] = [
       "В сообщении нужно указать класс, число присутствующих либо общее количество детей и число отсутствующих. Если данные неполные, администрация запрашивает уточнение.",
     tags: ["посещаемость", "формат", "данные"],
   },
+  {
+    id: "doc-order-1",
+    docTitle: "Шаблон приказа по школе",
+    sectionTitle: "Обязательные блоки",
+    content:
+      "В проекте приказа должны быть шапка организации, дата и номер, заголовок, основание, распорядительная часть с формулировкой 'ПРИКАЗЫВАЮ', список исполнителей, сроки и контроль исполнения.",
+    tags: ["шаблон приказа", "приказ", "проект", "распорядительная часть"],
+  },
+  {
+    id: "doc-order-2",
+    docTitle: "Шаблон приказа по школе",
+    sectionTitle: "Назначение ответственных",
+    content:
+      "При назначении на особое задание важно прямо указать ФИО, должность, суть поручения, срок исполнения, формат результата и лицо, осуществляющее контроль выполнения.",
+    tags: ["назначение", "ответственный", "особое задание", "контроль"],
+  },
 ];
 
 function buildWeekSchedule(): ScheduleEntry[] {
-  const currentWeekday = getWeekdayIndex(todayIso);
-  const lessons = [
-    ["08:00", "08:45"],
-    ["08:55", "09:40"],
-    ["09:55", "10:40"],
-    ["10:50", "11:35"],
-    ["11:45", "12:30"],
-    ["12:40", "13:25"],
-  ];
-
-  const templates = [
-    { className: "5А", subject: "Математика", teacherUserId: "askar", room: "21", lessonNumber: 1 },
-    { className: "3В", subject: "Математика", teacherUserId: "askar", room: "22", lessonNumber: 2 },
-    { className: "3В", subject: "Русский язык", teacherUserId: "aliya", room: "12", lessonNumber: 3 },
-    { className: "1А", subject: "Начальные классы", teacherUserId: "aigerim", room: "5", lessonNumber: 4 },
-    { className: "2Б", subject: "Английский", teacherUserId: "yerlan", room: "17", lessonNumber: 5 },
-    { className: "5Б", subject: "Английский", teacherUserId: "yerlan", room: "18", lessonNumber: 3 },
-    { className: "7А", subject: "История", teacherUserId: "timur", room: "19", lessonNumber: 4 },
-    { className: "8Б", subject: "Информатика", teacherUserId: "assel", room: "26", lessonNumber: 5 },
-    { className: "6А", subject: "Казахский язык", teacherUserId: "saule", room: "15", lessonNumber: 4 },
-    { className: "7А", subject: "Биология", teacherUserId: "meruyert", room: "14", lessonNumber: 5 },
-    { className: "8Б", subject: "Химия", teacherUserId: "gaukhar", room: "24", lessonNumber: 6 },
-    { className: "5А", subject: "Физкультура", teacherUserId: "arman", room: "Спортзал", lessonNumber: 6 },
-  ];
-
   const entries: ScheduleEntry[] = [];
-  const weekdays = Array.from(new Set([1, 2, 3, 4, 5, ...(currentWeekday > 5 ? [currentWeekday] : [])]));
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
-  for (const weekday of weekdays) {
-    templates.forEach((template) => {
-      const [startTime, endTime] = lessons[template.lessonNumber - 1];
-      const isShowcaseSubstitution =
-        weekday === 5 &&
-        template.className === "3В" &&
-        template.subject === "Математика";
+  days.forEach((day) => {
+    // Ольга П. (Russian Department) - Плотное расписание
+    entries.push(
+      { id: `sch-olga-1-${day}`, teacherId: "77479609925@c.us", subject: "Русский язык", classId: "10A", day, slot: 2, room: "215" },
+      { id: `sch-olga-2-${day}`, teacherId: "77479609925@c.us", subject: "Русский язык", classId: "11B", day, slot: 3, room: "215" },
+      { id: `sch-olga-3-${day}`, teacherId: "77479609925@c.us", subject: "Литература", classId: "9V", day, slot: 4, room: "215" }
+    );
 
-      entries.push({
-        id: createId(`schedule-${weekday}`),
-        className: template.className,
-        subject: template.subject,
-        teacherUserId: template.teacherUserId,
-        room: template.room,
-        weekday,
-        lessonNumber: template.lessonNumber,
-        startTime,
-        endTime,
-        substituteUserId: isShowcaseSubstitution ? "aigerim" : undefined,
-        substitutionStatus: isShowcaseSubstitution ? "confirmed" : undefined,
-      });
-    });
-  }
+    // Ирина С. (Russian Department) - Свободна на 2 и 3 уроки, занята на 4
+    entries.push(
+      { id: `sch-irina-1-${day}`, teacherId: "77088908028@c.us", subject: "Русский язык", classId: "5А", day, slot: 1, room: "302" },
+      { id: `sch-irina-2-${day}`, teacherId: "77088908028@c.us", subject: "Русский язык", classId: "6Б", day, slot: 4, room: "302" }
+    );
+
+    // Алия (Russian Department) - Занята на 2 урок, свободна на 3 и 4
+    entries.push(
+      { id: `sch-aliya-1-${day}`, teacherId: "aliya", subject: "Литература", classId: "8А", day, slot: 2, room: "305" },
+      { id: `sch-aliya-2-${day}`, teacherId: "aliya", subject: "Русский язык", classId: "7Г", day, slot: 5, room: "305" }
+    );
+  });
 
   return entries;
 }
+
 const scheduleEntries = buildWeekSchedule();
 
 const chats: Chat[] = [
   {
+    id: "chat-aisana",
+    title: "Ассистент",
+    type: "direct",
+    participants: ["director-janar", "ai-assistant"],
+    avatar: "AI",
+    unreadCount: 0,
+    lastMessageId: "msg-aisana-welcome",
+  },
+  {
     id: "chat-general",
-    title: "Общий чат учителей",
+    title: "Учителя и Директор",
     type: "group",
     participants: [
       "director-janar",
       "askar",
       "aigerim",
-      "nazken",
+      "77086187050@c.us",
       "aliya",
       "saule",
       "timur",
+      "77479609925@c.us",
+      "77088908028@c.us",
+      "77475924170@c.us",
       "ai-assistant",
     ],
-    avatar: "ОЧ",
+    avatar: "УД",
     unreadCount: 3,
     lastMessageId: "msg-command-ai",
   },
@@ -547,6 +634,15 @@ const chats: Chat[] = [
     avatar: "НК",
     unreadCount: 1,
     lastMessageId: "msg-att-2b",
+  },
+  {
+    id: "chat-admin",
+    title: "Администрация",
+    type: "group",
+    participants: ["director-janar", "ai-assistant"],
+    avatar: "АД",
+    unreadCount: 0,
+    lastMessageId: "",
   },
   {
     id: "chat-english",
@@ -596,4 +692,3 @@ export function buildSeedState(): AppState {
     classCatalog,
   };
 }
-

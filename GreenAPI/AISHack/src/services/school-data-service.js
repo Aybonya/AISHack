@@ -38,26 +38,47 @@ async function loadCollection(name, options = {}) {
     }
   }
 
-  let query = db.collection(name);
-  if (limit) {
-    query = query.limit(limit);
-  }
+  try {
+    let query = db.collection(name);
+    if (limit) {
+      query = query.limit(limit);
+    }
 
-  const snapshot = await query.get();
-  const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-  return setCachedEntry(cacheKey, data);
+    const snapshot = await query.get();
+    const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    return setCachedEntry(cacheKey, data);
+  } catch (error) {
+    console.error(`Error loading collection ${name}:`, error.message);
+    // Если это ошибка авторизации, возвращаем пустой массив, чтобы не ломать всё приложение
+    if (error.message.includes("UNAUTHENTICATED") || error.message.includes("credentials")) {
+      return [];
+    }
+    throw error;
+  }
 }
 
-async function loadSchoolData(options = {}) {
-  const [teachers, scheduleEntries, teacherLoad, rooms, classes] = await Promise.all([
-    loadCollection("teachers", options),
-    loadCollection("schedule_entries", options),
-    loadCollection("teacher_load", options),
-    loadCollection("rooms", options),
-    loadCollection("classes", options),
-  ]);
+const { loadDataFromExcel } = require("./excel-service");
 
-  return { teachers, scheduleEntries, teacherLoad, rooms, classes };
+async function loadSchoolData(options = {}) {
+  try {
+    const [teachers, scheduleEntries, teacherLoad, rooms, classes] = await Promise.all([
+      loadCollection("teachers", options),
+      loadCollection("schedule_entries", options),
+      loadCollection("teacher_load", options),
+      loadCollection("rooms", options),
+      loadCollection("classes", options),
+    ]);
+
+    // Если база пустая, пробуем Excel
+    if (teachers.length === 0 && scheduleEntries.length === 0) {
+      return await loadDataFromExcel();
+    }
+
+    return { teachers, scheduleEntries, teacherLoad, rooms, classes };
+  } catch (error) {
+    console.error("Firebase load failed, falling back to Excel:", error.message);
+    return await loadDataFromExcel();
+  }
 }
 
 function invalidateCollectionCache(...names) {

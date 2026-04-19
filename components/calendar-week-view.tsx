@@ -1,53 +1,44 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Clock3, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CalendarPlus2, ChevronLeft, ChevronRight, Clock3, MapPin, Plus, X, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { useAppState } from "@/components/providers/app-provider";
 import type { AppState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const START_HOUR = 7;
-const END_HOUR = 18;
-const HOUR_HEIGHT = 120;
+const END_HOUR = 20;
+const HOUR_HEIGHT = 72;
 
 const WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-const WEEKDAY_LONG = [
-  "Понедельник",
-  "Вторник",
-  "Среда",
-  "Четверг",
-  "Пятница",
-  "Суббота",
-  "Воскресенье",
-];
+const WEEKDAY_LONG = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
 
-type CalendarEventKind = "lesson" | "substitution" | "meeting";
+type CalendarEventKind = "lesson" | "substitution" | "director_event";
 
 type CalendarEvent = {
   id: string;
   title: string;
   detail: string;
   meta: string;
-  teacher: string;
-  className: string;
+  owner: string;
   room: string;
-  weekday: number;
   startTime: string;
   endTime: string;
   kind: CalendarEventKind;
+  dateKey: string;
   badge?: string;
-  isDirectorEvent?: boolean;
+  notes?: string;
 };
 
-interface DirectorEvent {
-  id: string;
+type NewEventForm = {
   title: string;
+  eventDate: string;
   startTime: string;
-  endTime?: string;
-  description?: string;
-  participants?: string[];
-}
+  endTime: string;
+  room: string;
+  description: string;
+};
 
 function addDays(date: Date, amount: number) {
   const next = new Date(date);
@@ -91,8 +82,9 @@ function formatDayLabel(date: Date) {
   }).format(date);
 }
 
-function shortTeacherName(name: string) {
-  return name.split(" ")[0] ?? name;
+function buildWeekDates(anchorDate: Date) {
+  const weekStart = startOfWeek(anchorDate);
+  return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
 }
 
 function timeToMinutes(value: string) {
@@ -100,94 +92,51 @@ function timeToMinutes(value: string) {
   return hours * 60 + minutes;
 }
 
-function buildWeekDates(anchorDate: Date) {
-  const weekStart = startOfWeek(anchorDate);
-  return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+function shortTeacherName(name: string) {
+  return name.split(" ")[0] ?? name;
 }
 
-function buildCalendarEvents(state: AppState): CalendarEvent[] {
-  const picks = [
-    { weekday: 1, className: "3В", subject: "Математика" },
-    { weekday: 2, className: "2Б", subject: "Английский" },
-    { weekday: 3, className: "1А", subject: "Начальные классы" },
-    { weekday: 4, className: "7А", subject: "История" },
-    { weekday: 5, className: "3В", subject: "Математика" },
-  ];
+function buildDefaultEventForm(date: Date): NewEventForm {
+  return {
+    title: "",
+    eventDate: toLocalDateKey(date),
+    startTime: "10:00",
+    endTime: "10:45",
+    room: "",
+    description: "",
+  };
+}
 
-  const events: CalendarEvent[] = picks
-    .map((pick) =>
-      state.scheduleEntries.find(
-        (entry) =>
-          entry.weekday === pick.weekday &&
-          entry.className === pick.className &&
-          entry.subject === pick.subject,
-      ),
-    )
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-    .map((entry) => {
-      const teacher = state.users.find((user) => user.id === entry.teacherUserId);
-      const substitute = state.users.find((user) => user.id === entry.substituteUserId);
-      const isSubstitution = Boolean(substitute && entry.substitutionStatus === "confirmed");
+function buildCalendarEvents(state: AppState, weekDates: Date[]): CalendarEvent[] {
+  const weekKeys = new Set(weekDates.map(toLocalDateKey));
+  const weekdayToDateKey = new Map<number, string>();
 
-      return {
-        id: entry.id,
-        title: entry.className,
-        detail: entry.subject,
-        meta: isSubstitution
-          ? `Замещает ${shortTeacherName(substitute?.name ?? "учитель")}`
-          : shortTeacherName(teacher?.name ?? "Учитель"),
-        teacher: isSubstitution
-          ? `${teacher?.name ?? "Учитель"} -> ${substitute?.name ?? "замещает"}`
-          : teacher?.name ?? "Преподаватель не назначен",
-        className: entry.className,
-        room: entry.room,
-        weekday: entry.weekday,
-        startTime: entry.startTime,
-        endTime: entry.endTime,
-        kind: isSubstitution ? "substitution" : "lesson",
-        badge: isSubstitution ? "Замена" : undefined,
-      };
-    });
-
-  const director = state.users.find((user) => user.role === "director");
-  events.push({
-    id: "calendar-meeting",
-    title: "Собрание",
-    detail: "Директор и кураторы",
-    meta: "Администрация",
-    teacher: director?.name ?? "Жанар С.",
-    className: "Администрация",
-    room: "Переговорная",
-    weekday: 4,
-    startTime: "15:00",
-    endTime: "15:45",
-    kind: "meeting",
+  weekDates.forEach((date, index) => {
+    weekdayToDateKey.set(index + 1, toLocalDateKey(date));
   });
 
-  const weekendEntry = state.scheduleEntries.find(
-    (entry) => entry.weekday > 5 && entry.className === "8Б" && entry.subject === "Информатика",
-  );
+  const lessonEvents: CalendarEvent[] = [];
 
-  if (weekendEntry) {
-    const teacher = state.users.find((user) => user.id === weekendEntry.teacherUserId);
-    events.push({
-      id: weekendEntry.id,
-      title: weekendEntry.className,
-      detail: weekendEntry.subject,
-      meta: shortTeacherName(teacher?.name ?? "Учитель"),
-      teacher: teacher?.name ?? "Преподаватель",
-      className: weekendEntry.className,
-      room: weekendEntry.room,
-      weekday: weekendEntry.weekday,
-      startTime: weekendEntry.startTime,
-      endTime: weekendEntry.endTime,
-      kind: "lesson",
-    });
-  }
+  const directorEvents = state.scheduleEntries
+    .filter((entry) => entry.entryType === "event" && entry.date && weekKeys.has(entry.date))
+    .map((entry) => ({
+      id: entry.id,
+      title: entry.subject,
+      detail: entry.notes?.trim() || "Событие директора",
+      meta: "Личное расписание директора",
+      owner: "Директор",
+      room: entry.room || "Уточняется",
+      startTime: entry.startTime,
+      endTime: entry.endTime,
+      kind: "director_event" as const,
+      dateKey: entry.date!,
+      badge: "В расписании",
+      notes: entry.notes,
+    }));
 
-  return events.sort((left, right) => {
-    if (left.weekday !== right.weekday) {
-      return left.weekday - right.weekday;
+  return [...lessonEvents, ...directorEvents].sort((left, right) => {
+    if (left.dateKey !== right.dateKey) {
+      return left.dateKey.localeCompare(right.dateKey);
     }
 
     return timeToMinutes(left.startTime) - timeToMinutes(right.startTime);
@@ -200,12 +149,14 @@ function CalendarMiniMonth({
   selectedDate,
   onSelectDate,
   onShiftMonth,
+  onCreateEvent,
 }: {
   anchorDate: Date;
   weekDates: Date[];
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
   onShiftMonth: (direction: number) => void;
+  onCreateEvent: () => void;
 }) {
   const monthStart = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
   const monthEnd = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0);
@@ -221,9 +172,7 @@ function CalendarMiniMonth({
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.24em] text-[#6f8b82]">Календарь</div>
-            <div className="mt-2 text-[1.75rem] font-semibold leading-[1.08] text-white">
-              {formatMonthLabel(anchorDate)}
-            </div>
+            <div className="mt-2 text-[1.75rem] font-semibold leading-[1.08] text-white">{formatMonthLabel(anchorDate)}</div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -278,14 +227,24 @@ function CalendarMiniMonth({
           })}
         </div>
 
-        <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/[0.05] pt-4">
-          <div className="text-sm text-[#8fa2a8]">{formatDayLabel(new Date())}</div>
+        <div className="mt-5 flex flex-col gap-3 border-t border-white/[0.05] pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm text-[#8fa2a8]">{formatDayLabel(new Date())}</div>
+            <button
+              className="rounded-full border border-[#1a4a38] bg-[#10271f] px-3 py-1.5 text-sm text-[#d8fff0] transition hover:bg-[#123125]"
+              onClick={() => onSelectDate(new Date())}
+              type="button"
+            >
+              Сегодня
+            </button>
+          </div>
           <button
-            className="rounded-full border border-[#1a4a38] bg-[#10271f] px-3 py-1.5 text-sm text-[#d8fff0] transition hover:bg-[#123125]"
-            onClick={() => onSelectDate(new Date())}
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-[#5d46d8]/30 bg-[#191127] px-4 py-2.5 text-sm font-medium text-[#efe8ff] transition hover:border-[#7d63ff]/40 hover:bg-[#211538]"
+            onClick={onCreateEvent}
             type="button"
           >
-            Сегодня
+            <Plus className="size-4" />
+            Добавить директору
           </button>
         </div>
       </div>
@@ -303,7 +262,7 @@ function CalendarEventModal({
   const styleMap = {
     lesson: "border-[#20483a] bg-[#13211c]",
     substitution: "border-[#1d7b59] bg-[#113328]",
-    meeting: "border-[#2a5561] bg-[#132129]",
+    director_event: "border-[#6f4cff] bg-[#1a1330]",
   } satisfies Record<CalendarEventKind, string>;
 
   return (
@@ -316,9 +275,9 @@ function CalendarEventModal({
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.24em] text-[#8fb9aa]">Детали события</div>
+            <div className="text-[11px] uppercase tracking-[0.24em] text-[#b7a8ff]">Детали события</div>
             <div className="mt-2 text-2xl font-semibold text-white">{event.title}</div>
-            <div className="mt-2 text-base text-[#c6d3d8]">{event.detail}</div>
+            <div className="mt-2 text-base text-[#d6d1ec]">{event.detail}</div>
           </div>
           <button
             className="flex size-10 items-center justify-center rounded-full bg-white/[0.05] text-[#d7e3e7] transition hover:bg-white/[0.08] hover:text-white"
@@ -329,96 +288,152 @@ function CalendarEventModal({
           </button>
         </div>
 
-        <div className="mt-6 space-y-3 text-sm text-[#c6d3d8]">
+        <div className="mt-6 space-y-3 text-sm text-[#d6d1ec]">
           <div className="flex items-center gap-2">
-            <Clock3 className="size-4 text-[#25d366]" />
+            <Clock3 className="size-4 text-[#9a7cff]" />
             {event.startTime} - {event.endTime}
           </div>
-          <div>{event.isDirectorEvent ? "Описание" : "Класс"}: {event.className}</div>
-          <div>Учитель/Участники: {event.teacher}</div>
-          {event.room && <div>Кабинет: {event.room}</div>}
-          <div className="text-[#95aaae]">{event.meta}</div>
-        </div>
-        
-        {event.isDirectorEvent && (
-          <div className="mt-6 flex justify-end">
-            <button 
-              className="flex items-center gap-2 text-red-400 hover:text-red-300 text-sm font-medium transition"
-              onClick={async () => {
-                await fetch(`/api/live/events/${event.id}`, { method: "DELETE" });
-                onClose();
-              }}
-            >
-              <Trash2 className="size-4" /> Удалить событие
-            </button>
+          <div className="flex items-center gap-2">
+            <MapPin className="size-4 text-[#9a7cff]" />
+            {event.room}
           </div>
-        )}
+          <div>Ответственный: {event.owner}</div>
+          <div className="text-[#b9acd9]">{event.meta}</div>
+          {event.notes ? <div className="rounded-2xl bg-white/[0.05] px-4 py-3 text-[#efe8ff]">{event.notes}</div> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreateEventModal({
+  form,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  form: NewEventForm;
+  onChange: (patch: Partial<NewEventForm>) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-xl rounded-[30px] border border-[#7257ff]/25 bg-[#130f1f] p-6 shadow-[0_24px_90px_rgba(0,0,0,0.5)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.24em] text-[#9c8fe0]">Личное расписание директора</div>
+            <h2 className="mt-2 text-2xl font-semibold text-white">Добавить событие</h2>
+            <p className="mt-2 text-sm text-[#bfb4df]">
+              Это событие появится в календаре директора и будет доступно для дальнейшей работы через AISana.
+            </p>
+          </div>
+          <button
+            className="flex size-10 items-center justify-center rounded-full bg-white/[0.05] text-[#ddd2ff] transition hover:bg-white/[0.08] hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <label className="md:col-span-2">
+            <span className="mb-2 block text-sm text-[#d6cfff]">Название</span>
+            <input
+              className="w-full rounded-2xl border border-white/10 bg-[#1b1530] px-4 py-3 text-white outline-none transition placeholder:text-[#7d72a4] focus:border-[#8f76ff]"
+              onChange={(event) => onChange({ title: event.target.value })}
+              placeholder="Например: встреча с родителями 7А"
+              type="text"
+              value={form.title}
+            />
+          </label>
+
+          <label>
+            <span className="mb-2 block text-sm text-[#d6cfff]">Дата</span>
+            <input
+              className="w-full rounded-2xl border border-white/10 bg-[#1b1530] px-4 py-3 text-white outline-none transition focus:border-[#8f76ff]"
+              onChange={(event) => onChange({ eventDate: event.target.value })}
+              type="date"
+              value={form.eventDate}
+            />
+          </label>
+
+          <label>
+            <span className="mb-2 block text-sm text-[#d6cfff]">Место</span>
+            <input
+              className="w-full rounded-2xl border border-white/10 bg-[#1b1530] px-4 py-3 text-white outline-none transition placeholder:text-[#7d72a4] focus:border-[#8f76ff]"
+              onChange={(event) => onChange({ room: event.target.value })}
+              placeholder="Кабинет директора / Zoom / актовый зал"
+              type="text"
+              value={form.room}
+            />
+          </label>
+
+          <label>
+            <span className="mb-2 block text-sm text-[#d6cfff]">Начало</span>
+            <input
+              className="w-full rounded-2xl border border-white/10 bg-[#1b1530] px-4 py-3 text-white outline-none transition focus:border-[#8f76ff]"
+              onChange={(event) => onChange({ startTime: event.target.value })}
+              type="time"
+              value={form.startTime}
+            />
+          </label>
+
+          <label>
+            <span className="mb-2 block text-sm text-[#d6cfff]">Конец</span>
+            <input
+              className="w-full rounded-2xl border border-white/10 bg-[#1b1530] px-4 py-3 text-white outline-none transition focus:border-[#8f76ff]"
+              onChange={(event) => onChange({ endTime: event.target.value })}
+              type="time"
+              value={form.endTime}
+            />
+          </label>
+
+          <label className="md:col-span-2">
+            <span className="mb-2 block text-sm text-[#d6cfff]">Описание</span>
+            <textarea
+              className="min-h-[120px] w-full rounded-2xl border border-white/10 bg-[#1b1530] px-4 py-3 text-white outline-none transition placeholder:text-[#7d72a4] focus:border-[#8f76ff]"
+              onChange={(event) => onChange({ description: event.target.value })}
+              placeholder="Можно добавить, что именно нужно обсудить или подготовить."
+              value={form.description}
+            />
+          </label>
+        </div>
+
+        <div className="mt-6 flex items-center justify-end gap-3">
+          <button
+            className="rounded-full border border-white/10 px-4 py-2.5 text-sm text-[#d2caef] transition hover:border-white/20 hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            Отмена
+          </button>
+          <button
+            className="inline-flex items-center gap-2 rounded-full border border-[#7d63ff]/35 bg-[#6a4fff] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#765cff]"
+            onClick={onSubmit}
+            type="button"
+          >
+            <CalendarPlus2 className="size-4" />
+            Добавить в расписание
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 export function CalendarWeekView() {
-  const { state } = useAppState();
+  const { state, createScheduleEvent, clearScheduleEvents } = useAppState();
   const today = new Date();
   const [anchorDate, setAnchorDate] = useState(today);
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [directorEvents, setDirectorEvents] = useState<DirectorEvent[]>([]);
-  const [draftEventSlot, setDraftEventSlot] = useState<{date: Date; hour: number} | null>(null);
-
-  async function fetchDirectorEvents() {
-    try {
-      const res = await fetch("/api/live/events");
-      if (res.ok) {
-        const data = await res.json();
-        setDirectorEvents(data.events ?? []);
-      }
-    } catch { /* ignore */ }
-  }
-
-  useEffect(() => {
-    fetchDirectorEvents();
-  }, []);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [newEventForm, setNewEventForm] = useState<NewEventForm>(() => buildDefaultEventForm(today));
 
   const weekDates = useMemo(() => buildWeekDates(anchorDate), [anchorDate]);
-  
-  const allEvents = useMemo(() => {
-    const baseEvents = buildCalendarEvents(state);
-    
-    // Подмешиваем события директора
-    const mappedEvents: CalendarEvent[] = directorEvents.map((e) => {
-      const d = new Date(e.startTime);
-      const startTime = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-      let endTime = "";
-      if (e.endTime) {
-        endTime = new Date(e.endTime).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-      } else {
-        const endD = new Date(d);
-        endD.setHours(d.getHours() + 1);
-        endTime = endD.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-      }
-
-      return {
-        id: e.id,
-        title: e.title,
-        detail: e.description || "Событие",
-        meta: "Директор",
-        teacher: e.participants?.join(", ") || "Участники не указаны",
-        className: e.description || "",
-        room: "",
-        weekday: d.getDay() === 0 ? 7 : d.getDay(),
-        startTime,
-        endTime,
-        kind: "meeting",
-        badge: "Событие",
-        isDirectorEvent: true,
-      };
-    });
-
-    return [...baseEvents, ...mappedEvents];
-  }, [state, directorEvents]);
-
+  const events = useMemo(() => buildCalendarEvents(state, weekDates), [state, weekDates]);
   const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, index) => START_HOUR + index);
   const dayHeight = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
   const selectedKey = toLocalDateKey(selectedDate);
@@ -427,6 +442,10 @@ export function CalendarWeekView() {
   function selectDate(date: Date) {
     setAnchorDate(date);
     setSelectedDate(date);
+    setNewEventForm((current) => ({
+      ...current,
+      eventDate: toLocalDateKey(date),
+    }));
   }
 
   function shiftWeek(direction: number) {
@@ -439,12 +458,37 @@ export function CalendarWeekView() {
     setSelectedDate((current) => addMonths(current, direction));
   }
 
+  function openCreateModal(date = selectedDate) {
+    setNewEventForm(buildDefaultEventForm(date));
+    setIsCreateOpen(true);
+  }
+
+  function handleCreateEvent() {
+    if (!newEventForm.title.trim()) {
+      return;
+    }
+
+    createScheduleEvent({
+      title: newEventForm.title,
+      description: newEventForm.description,
+      eventDate: newEventForm.eventDate,
+      startTime: newEventForm.startTime,
+      endTime: newEventForm.endTime,
+      room: newEventForm.room,
+    });
+
+    setSelectedDate(new Date(`${newEventForm.eventDate}T12:00:00`));
+    setAnchorDate(new Date(`${newEventForm.eventDate}T12:00:00`));
+    setIsCreateOpen(false);
+  }
+
   return (
     <>
       <div className="flex h-full min-h-0 bg-[#0b141a]">
         <aside className="hidden w-[320px] shrink-0 2xl:block">
           <CalendarMiniMonth
             anchorDate={anchorDate}
+            onCreateEvent={() => openCreateModal(selectedDate)}
             onSelectDate={selectDate}
             onShiftMonth={shiftMonth}
             selectedDate={selectedDate}
@@ -453,6 +497,35 @@ export function CalendarWeekView() {
         </aside>
 
         <section className="min-w-0 flex-1 overflow-auto px-4 py-5 xl:px-6 xl:py-6">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.24em] text-[#6f8b82]">Расписание директора</div>
+              <h1 className="mt-2 text-3xl font-semibold text-white">Календарь недели</h1>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-transparent px-4 py-2.5 text-sm font-medium text-[#9fb0b6] transition hover:border-white/[0.15] hover:bg-white/[0.04] hover:text-white"
+                onClick={() => {
+                  if (confirm("Вы уверены, что хотите очистить все личные события в этом календаре?")) {
+                    clearScheduleEvents();
+                  }
+                }}
+                type="button"
+              >
+                <Trash2 className="size-4" />
+                Очистить календарь
+              </button>
+              <button
+                className="inline-flex items-center gap-2 rounded-full border border-[#7d63ff]/30 bg-[#171129] px-4 py-2.5 text-sm font-medium text-[#efe8ff] transition hover:border-[#9a86ff]/45 hover:bg-[#21183a]"
+                onClick={() => openCreateModal(selectedDate)}
+                type="button"
+              >
+                <Plus className="size-4" />
+                Добавить в расписание
+              </button>
+            </div>
+          </div>
+
           <div className="min-w-[980px] rounded-[30px] border border-white/[0.05] bg-[#10181d]">
             <div className="grid grid-cols-[72px_repeat(7,minmax(140px,1fr))] border-b border-white/[0.05]">
               <div className="border-r border-white/[0.05] px-3 py-4 text-[11px] uppercase tracking-[0.24em] text-[#607277]">
@@ -483,19 +556,19 @@ export function CalendarWeekView() {
                 const isToday = dateKey === todayKey;
 
                 return (
-                  <div
+                  <button
                     className={cn(
-                      "border-r border-white/[0.05] px-4 py-4 last:border-r-0",
+                      "border-r border-white/[0.05] px-4 py-4 text-left transition last:border-r-0",
                       isSelected && "bg-[#0f1b17]",
                       !isSelected && isToday && "bg-[#0d1714]",
                     )}
                     key={dateKey}
+                    onClick={() => selectDate(date)}
+                    type="button"
                   >
-                    <div className="text-[11px] uppercase tracking-[0.24em] text-[#6d7c82]">
-                      {WEEKDAY_LONG[index]}
-                    </div>
+                    <div className="text-[11px] uppercase tracking-[0.24em] text-[#6d7c82]">{WEEKDAY_LONG[index]}</div>
                     <div className="mt-2 text-lg font-semibold text-white">{date.getDate()}</div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -514,33 +587,29 @@ export function CalendarWeekView() {
               </div>
 
               <div className="grid grid-cols-7">
-                {weekDates.map((date, index) => {
+                {weekDates.map((date) => {
                   const dateKey = toLocalDateKey(date);
                   const isSelected = dateKey === selectedKey;
                   const isToday = dateKey === todayKey;
-                  const dayEvents = allEvents.filter((event) => event.weekday === index + 1 && (
-                     !event.isDirectorEvent || toLocalDateKey(new Date(directorEvents.find(e => e.id === event.id)?.startTime || new Date())) === dateKey
-                  ));
+                  const dayEvents = events.filter((event) => event.dateKey === dateKey);
 
                   return (
                     <div
                       className={cn(
-                        "relative border-r border-white/[0.05] last:border-r-0 group",
+                        "relative border-r border-white/[0.05] text-left last:border-r-0",
                         isSelected && "bg-[#0d1815]",
                         !isSelected && isToday && "bg-[#0c1512]",
                       )}
                       key={dateKey}
+                      onClick={() => selectDate(date)}
                       style={{ height: dayHeight }}
                     >
                       {hours.map((hour) => (
                         <div
-                          className="absolute inset-x-0 border-t border-white/[0.035] cursor-pointer hover:bg-white/[0.02] transition"
+                          className="pointer-events-none absolute inset-x-0 border-t border-white/[0.035]"
                           key={hour}
-                          onClick={() => setDraftEventSlot({ date, hour })}
-                          style={{ top: (hour - START_HOUR) * HOUR_HEIGHT, height: HOUR_HEIGHT }}
-                        >
-                          <div className="hidden group-hover:flex size-full items-center justify-center text-[24px] text-[#25d366]/40">+</div>
-                        </div>
+                          style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}
+                        />
                       ))}
 
                       {dayEvents.map((event) => {
@@ -551,39 +620,36 @@ export function CalendarWeekView() {
                         const cardStyles = {
                           lesson: "border-[#214536] bg-[#122019] hover:bg-[#162a21]",
                           substitution: "border-[#1f7c59] bg-[#123226] hover:bg-[#184034]",
-                          meeting: "border-[#31596b] bg-[#15242d] hover:bg-[#1a2d38]",
+                          director_event: "border-[#7759ff] bg-[#1f1738] hover:bg-[#271d45]",
                         } satisfies Record<CalendarEventKind, string>;
 
                         return (
                           <button
                             className={cn(
-                              "absolute left-2.5 right-2.5 flex w-[calc(100%-20px)] flex-col overflow-hidden rounded-[14px] border p-2.5 text-left shadow-[0_12px_28px_rgba(0,0,0,0.18)] transition",
+                              "absolute left-2.5 right-2.5 flex flex-col overflow-hidden rounded-[18px] border px-4 py-3 text-left shadow-[0_12px_28px_rgba(0,0,0,0.18)] transition",
                               cardStyles[event.kind],
                             )}
                             key={event.id}
-                            onClick={() => setSelectedEvent(event)}
+                            onClick={(clickEvent) => {
+                              clickEvent.stopPropagation();
+                              setSelectedEvent(event);
+                            }}
                             style={{ height, top }}
                             type="button"
                           >
-                            <div className="flex w-full shrink-0 items-start justify-between gap-1.5 overflow-hidden">
-                              <div className="truncate text-[13px] font-semibold leading-tight text-white">
-                                {event.title}
-                              </div>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="text-[15px] font-semibold leading-5 text-white">{event.title}</div>
                               {event.badge ? (
-                                <span className="shrink-0 rounded-full border border-[#2aa573]/40 bg-[#0d241c] px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-[#81f0bf]">
+                                <span className="rounded-full border border-white/10 bg-black/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#f4efff]">
                                   {event.badge}
                                 </span>
                               ) : null}
                             </div>
-                            <div className="mt-1 w-full shrink-0 whitespace-normal break-words text-[11px] leading-tight text-[#ebf1f3] line-clamp-2">
-                              {event.detail}
-                            </div>
-                            <div className="mt-auto pt-1 shrink-0 text-[10px] font-medium text-[#d0dadd]">
+                            <div className="mt-1 text-[13px] leading-5 text-[#ebf1f3]">{event.detail}</div>
+                            <div className="mt-auto pt-3 text-xs font-medium text-[#d0dadd]">
                               {event.startTime} - {event.endTime}
                             </div>
-                            <div className="mt-0.5 w-full shrink-0 truncate text-[10px] leading-tight text-[#9fb3b9]">
-                              {event.meta}
-                            </div>
+                            <div className="mt-1 truncate text-xs leading-5 text-[#9fb3b9]">{event.meta}</div>
                           </button>
                         );
                       })}
@@ -596,27 +662,13 @@ export function CalendarWeekView() {
         </section>
       </div>
 
-      {selectedEvent ? (
-        <CalendarEventModal 
-          event={selectedEvent} 
-          onClose={() => {
-            setSelectedEvent(null);
-            if (selectedEvent.isDirectorEvent) {
-              fetchDirectorEvents(); // Обновить если удалили
-            }
-          }} 
-        />
-      ) : null}
-
-      {draftEventSlot ? (
+      {selectedEvent ? <CalendarEventModal event={selectedEvent} onClose={() => setSelectedEvent(null)} /> : null}
+      {isCreateOpen ? (
         <CreateEventModal
-          initialDate={draftEventSlot.date}
-          initialHour={draftEventSlot.hour}
-          onClose={() => setDraftEventSlot(null)}
-          onCreated={() => {
-            setDraftEventSlot(null);
-            fetchDirectorEvents();
-          }}
+          form={newEventForm}
+          onChange={(patch) => setNewEventForm((current) => ({ ...current, ...patch }))}
+          onClose={() => setIsCreateOpen(false)}
+          onSubmit={handleCreateEvent}
         />
       ) : null}
     </>

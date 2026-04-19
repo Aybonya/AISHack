@@ -4,6 +4,7 @@ import { classifyMessage } from "@/lib/parser/classifyMessage";
 import { extractAbsence } from "@/lib/parser/extractAbsence";
 import { extractAttendance } from "@/lib/parser/extractAttendance";
 import { extractIncident } from "@/lib/parser/extractIncident";
+import { extractTaskUpdate } from "@/lib/parser/extractTaskUpdate";
 import { extractTasks } from "@/lib/parser/extractTasks";
 import { buildCafeteriaSummary, upsertAttendanceReport, upsertCafeteriaSummary } from "@/lib/services/cafeteria";
 import { retrieveRelevantChunks } from "@/lib/services/documents";
@@ -18,6 +19,8 @@ import type {
   SendMessageInput,
 } from "@/lib/types";
 import { createId, toIsoDate } from "@/lib/utils";
+
+const AISANA_CHAT_ID = "chat-aisana";
 
 function buildAiMessage(message: Omit<Message, "id" | "createdAt" | "senderId" | "senderType" | "kind">) {
   return {
@@ -72,6 +75,11 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
   const userMessage = { ...baseMessage, parsedIntent: intent };
   let nextState = appendMessages(state, input.chatId, [userMessage], input.senderType === "teacher");
 
+  // Если это не прямой чат с ИИ, то ответы ИИ отправляем в приватный чат ассистента, чтобы не флудить в группах
+  const responseChatId = input.chatId.startsWith("chat-") && input.chatId !== AISANA_CHAT_ID 
+    ? AISANA_CHAT_ID 
+    : input.chatId;
+
   if (intent === "attendance") {
     const extraction = extractAttendance(baseMessage.text);
     if (!extraction) {
@@ -98,11 +106,11 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
 
     return appendMessages(
       nextState,
-      input.chatId,
+      responseChatId,
       [
         buildAiMessage({
-          chatId: input.chatId,
-          text: "Посещаемость добавлена в сводку питания.",
+          chatId: responseChatId,
+          text: `Посещаемость ${report.className} добавлена в сводку питания.`,
           parsedIntent: "attendance",
           metadata: {
             cardType: "attendance",
@@ -113,7 +121,7 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
           },
         }),
       ],
-      false,
+      responseChatId === AISANA_CHAT_ID,
     );
   }
 
@@ -131,10 +139,10 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
 
     return appendMessages(
       nextState,
-      input.chatId,
+      responseChatId,
       [
         buildAiMessage({
-          chatId: input.chatId,
+          chatId: responseChatId,
           text: "Инцидент зарегистрирован и поставлен в работу.",
           parsedIntent: "incident",
           metadata: {
@@ -147,7 +155,7 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
           },
         }),
       ],
-      false,
+      responseChatId === AISANA_CHAT_ID,
     );
   }
 
@@ -161,10 +169,10 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
 
     return appendMessages(
       nextState,
-      input.chatId,
+      responseChatId,
       [
         buildAiMessage({
-          chatId: input.chatId,
+          chatId: responseChatId,
           text: generateTaskSummary(createdTasks, nextState.users),
           parsedIntent: "task",
           metadata: {
@@ -175,8 +183,40 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
           },
         }),
       ],
-      false,
+      responseChatId === AISANA_CHAT_ID,
     );
+  }
+
+  if (intent === "task_update") {
+    const update = extractTaskUpdate(baseMessage.text);
+    if (update && update.status === "done") {
+      // Находим последнюю задачу, назначенную на этого пользователя, которая еще не выполнена
+      const taskIndex = nextState.tasks.findIndex(t => t.assigneeUserId === input.senderId && t.status !== "done");
+      if (taskIndex !== -1) {
+        const task = nextState.tasks[taskIndex];
+        const updatedTasks = [...nextState.tasks];
+        updatedTasks[taskIndex] = { ...task, status: "done" };
+        nextState = { ...nextState, tasks: updatedTasks };
+
+        return appendMessages(
+          nextState,
+          responseChatId,
+          [
+            buildAiMessage({
+              chatId: responseChatId,
+              text: `Задача "${task.title}" отмечена как выполненная.`,
+              parsedIntent: "task_update",
+              metadata: {
+                cardType: "generic",
+                title: "Задача выполнена",
+                summary: `Исполнитель ${state.users.find(u => u.id === input.senderId)?.name} завершил работу над задачей.`,
+              },
+            }),
+          ],
+          responseChatId === AISANA_CHAT_ID,
+        );
+      }
+    }
   }
 
   if (intent === "substitution") {
@@ -204,7 +244,7 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
 
     const aiMessage = suggestion
       ? buildAiMessage({
-          chatId: input.chatId,
+          chatId: responseChatId,
           text: suggestion.explanation,
           parsedIntent: "substitution",
           metadata: {
@@ -218,7 +258,7 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
           },
         })
       : buildAiMessage({
-          chatId: input.chatId,
+          chatId: responseChatId,
           text: "Отсутствие отмечено, но уроков на сегодня не найдено.",
           parsedIntent: "substitution",
           metadata: {
@@ -228,7 +268,7 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
           },
         });
 
-    return appendMessages(nextState, input.chatId, [aiMessage], false);
+    return appendMessages(nextState, responseChatId, [aiMessage], responseChatId === AISANA_CHAT_ID);
   }
 
   if (baseMessage.text.toLowerCase().includes("приказ") || baseMessage.text.toLowerCase().includes("регламент")) {
@@ -241,10 +281,10 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
 
     return appendMessages(
       nextState,
-      input.chatId,
+      responseChatId,
       [
         buildAiMessage({
-          chatId: input.chatId,
+          chatId: responseChatId,
           text: answer.bullets.join(" "),
           parsedIntent: "generic",
           metadata: {
@@ -257,27 +297,9 @@ export function processChatMessage(state: AppState, input: SendMessageInput): Ap
           },
         }),
       ],
-      false,
+      responseChatId === AISANA_CHAT_ID,
     );
   }
 
   return nextState;
-
-  return appendMessages(
-    nextState,
-    input.chatId,
-    [
-      buildAiMessage({
-        chatId: input.chatId,
-        text: "Приняла сообщение. Если нужно, превращу его в задачу, инцидент или сводку.",
-        parsedIntent: "generic",
-        metadata: {
-          cardType: "generic",
-          title: "Сообщение принято",
-          summary: "AISana продолжает следить за контекстом чата.",
-        },
-      }),
-    ],
-    false,
-  );
 }

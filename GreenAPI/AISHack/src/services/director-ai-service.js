@@ -316,8 +316,8 @@ function findFuzzyTeacher(name, teacherIndex) {
 async function smartAIAnalyze(text, teacherAliases, senderContext = {}) {
   try {
     const prompt = `
-Ты умный ассистент завуча школы. Проанализируй текст от сотрудников школы и извлеки события в строгом JSON.
-Извлекай только то, что есть в тексте. Сотрудники могут писать с ошибками, неформально или странно.
+Ты умный ассистент завуча школы. Проанализируй текст от сотрудников школы или внешних контактов и извлеки события в строгом JSON.
+Извлекай только то, что есть в тексте.
 
 ДАННЫЕ ОТПРАВИТЕЛЯ:
 Имя/Роль: ${senderContext.name || "Неизвестный сотрудник"}
@@ -325,21 +325,19 @@ async function smartAIAnalyze(text, teacherAliases, senderContext = {}) {
 Тип: ${senderContext.role || "teacher"}
 
 СЕГОДНЯ: ${new Date().toLocaleDateString('ru-RU')}
-ТЕКУЩИЙ ДЕНЬ НЕДЕЛИ: ${new Date().toLocaleDateString('en-US', {weekday: 'long'}).toLowerCase()}
+ТЕКУЩИЙ РАБОЧИЙ ДЕНЬ: ${(() => { const d = new Date().getDay(); if (d === 0) return 'monday'; if (d === 6) return 'monday'; return new Date().toLocaleDateString('en-US', {weekday: 'long'}).toLowerCase(); })()}
 
 Возможные события:
 1. attendance: {"classId": "10A", "presentCount": 25, "absentCount": 3}
 2. incident: {"title": "Кратко", "summary": "Подробно", "priority": "low"|"medium"|"high"}
-3. replacement: {"teacherName": "ФИО или Имя", "dayKey": "monday|tuesday|wednesday|thursday|friday|saturday", "lessonNumber": 4, "classId": "11A"}
-4. tasks: [{"title": "...", "dueHint": "...", "assigneeName": "..."}]
-5. partnership: {"topic": "Краткая суть", "priority": "high"}
+3. replacement: {"teacherName": "ФИО или Имя заболевшего", "substituteName": "ФИО заменяющего (если указан явно)", "dayKey": "monday|tuesday|wednesday|thursday|friday|saturday", "lessonNumber": 4, "classId": "11A"}
+4. tasks: [{"title": "Краткое описание задачи", "dueHint": "today|tomorrow", "assigneeName": "Завхоз"}]
+5. partnership: {"topic": "Краткая суть новости/события/предложения", "priority": "high", "isImportant": true}
 
-ИГНОРИРОВАНИЕ СПАМА:
-Если сообщение вообще не относится к школьным делам (например: вопросы "как дела", личные диалоги, спам, сторонние эвенты вне школы, рассылка), верни абсолютно пустой JSON объект: {}
-
-ВАЖНО ДЛЯ REPLACEMENT (ЗАМЕН):
-Если замена требуется на ВЕСЬ ДЕНЬ ("все уроки", "не приду", "заболела" без указания урока), установи "lessonNumber": null и "classId": null.
-Если день (dayKey) не указан в тексте, но по смыслу подразумевается замена "на сегодня", используй ТЕКУЩИЙ ДЕНЬ НЕДЕЛИ (указан выше). Если "на завтра" — укажи завтрашний день недели.
+ПРАВИЛА И АНАЛИЗ (ОЧЕНЬ ВАЖНО):
+- ВАЖНЫЕ ПАРТНЕРСТВА (коллаборации, ивенты, олимпиады): Если пишет внешний человек (external) с предложением о сотрудничестве, спонсорстве или важном ивенте для школы — проанализируй текст. Если это действительно может быть полезно школе, верни "partnership".
+- СПАМ: Если это откровенный спам, реклама окон, личные диалоги "как дела", "привет" без сути — верни пустой JSON {}.
+- ЗАМЕНЫ: Если замена "на весь день", установи "lessonNumber": null и "classId": null. Если день не указан — используй ТЕКУЩИЙ РАБОЧИЙ ДЕНЬ.
 
 Текст сообщения:
 "${text}"
@@ -381,6 +379,7 @@ async function processIncomingMessage({ message, schoolData }) {
   // ── 3. Сохраняем конверт сообщения ────────────────────────────────────────
   const messageId = await storeMessageEnvelope({
     chatId: message.chatId || null,
+    chatName: message.chatName || null,
     senderName: message.senderName || null,
     senderRole: message.senderRole || "teacher",
     senderTeacherId: senderId,
@@ -407,7 +406,14 @@ async function processIncomingMessage({ message, schoolData }) {
   });
   if (aiResult) {
     console.log("GPT Parsing result:", aiResult);
-    if (aiResult.attendance) detections.attendance = aiResult.attendance;
+    // Посещаемость может прийти как массив [{classId,presentCount,absentCount}] или как объект
+    if (Array.isArray(aiResult.attendance)) {
+      detections.attendanceList = aiResult.attendance; // массив по классам
+      detections.attendance = aiResult.attendance[0] || null; // первый для совместимости
+    } else if (aiResult.attendance) {
+      detections.attendance = aiResult.attendance;
+      detections.attendanceList = [aiResult.attendance];
+    }
     if (aiResult.incident) detections.incident = aiResult.incident;
     if (aiResult.tasks) detections.tasks = aiResult.tasks;
     if (aiResult.partnership) detections.partnership = aiResult.partnership;
@@ -417,6 +423,10 @@ async function processIncomingMessage({ message, schoolData }) {
          parsedAbsence.teacherId = findFuzzyTeacher(aiResult.replacement.teacherName, teacherIndex) 
                                 || findTeacherInText(aiResult.replacement.teacherName, teacherIndex) 
                                 || senderId;
+      }
+      if (aiResult.replacement.substituteName) {
+         parsedAbsence.substituteTeacherId = findFuzzyTeacher(aiResult.replacement.substituteName, teacherIndex) 
+                                          || findTeacherInText(aiResult.replacement.substituteName, teacherIndex);
       }
       parsedAbsence.classId = aiResult.replacement.classId ? normalizeClassId(aiResult.replacement.classId) : null;
       parsedAbsence.lessonNumber = aiResult.replacement.lessonNumber ? parseInt(aiResult.replacement.lessonNumber, 10) : null;
@@ -430,17 +440,35 @@ async function processIncomingMessage({ message, schoolData }) {
       if (!detections.attendance) detections.attendance = detectAttendance(chunk);
       if (!detections.incident) detections.incident = detectIncident(chunk);
     }
-    if (message.senderRole === "director") {
+    if (detections.attendance) detections.attendanceList = [detections.attendance];
+    if (message.senderRole === "director" || message.senderRole === "teacher" || message.senderRole === "facilities") {
       detections.tasks = detectTasks(rawText, schoolData.teachers, teacherIndex);
     }
-    
     // Fallback парсинг отсутствия
     const { parseChatNote } = require("./replacement-engine");
     parsedAbsence = parseChatNote(rawText, teacherIndex);
-    // Добавим слово "замен" в fallback если ИИ не отработал
     if (rawText.toLowerCase().includes("замен") || rawText.toLowerCase().includes("воскреснет") || rawText.toLowerCase().includes("умерла")) {
       parsedAbsence.intent = "teacher_absence";
     }
+  }
+
+  // Всегда проверяем на завхозные задачи — независимо от роли и от того, что сказал ИИ
+  const lowerText = rawText.toLowerCase();
+  const isZavhozRequest = lowerText.includes("завхоз") || lowerText.includes("слома") || 
+                           lowerText.includes("почини") || lowerText.includes("протека") ||
+                           lowerText.includes("розетк") || lowerText.includes("труб") ||
+                           lowerText.includes("кран") || lowerText.includes("лампа") ||
+                           lowerText.includes("стекл") || lowerText.includes("дверь") ||
+                           lowerText.includes("ремонт") || lowerText.includes("батаре");
+  if (isZavhozRequest && detections.tasks.length === 0) {
+    detections.tasks.push({
+      title: rawText.substring(0, 100),
+      assigneeId: "zavhoz",
+      assigneeName: "Дмитрий (Завхоз)",
+      status: "open",
+      priority: "medium"
+    });
+    console.log("[AUTO] Создана задача для Завхоза из сообщения:", rawText.substring(0, 50));
   }
 
   // Если учитель не найден в тексте — подставляем из отправителя
@@ -464,7 +492,25 @@ async function processIncomingMessage({ message, schoolData }) {
   };
 
   // ── 6. Сохраняем события ───────────────────────────────────────────────────
-  if (detections.attendance) {
+  // Посещаемость — сохраняем каждый класс отдельно (поддержка массива)
+  if (detections.attendanceList && detections.attendanceList.length > 0) {
+    const ids = [];
+    for (const att of detections.attendanceList) {
+      const id = await storeAttendance(
+        messageId,
+        message.senderName,
+        message.source || "whatsapp_green_api",
+        att,
+        messageDateKey
+      );
+      if (id) ids.push(id);
+      await createOrchestratorEvent(messageId, "attendance_update", {
+        ...att,
+        dateKey: messageDateKey,
+      });
+    }
+    result.attendanceUpdateId = ids[0] || null;
+  } else if (detections.attendance) {
     result.attendanceUpdateId = await storeAttendance(
       messageId,
       message.senderName,
@@ -523,7 +569,7 @@ async function processIncomingMessage({ message, schoolData }) {
       recommendations,
       messageId,
       source: message.source || "whatsapp_green_api",
-      autoApprove: !!senderId || message.senderRole === "director"
+      autoApprove: true // Всегда авто-назначать: просто ставить и уведомлять
     });
     result.replacement = {
       noteId: saved.noteId,
@@ -535,6 +581,20 @@ async function processIncomingMessage({ message, schoolData }) {
       teacherId: parsedAbsence.teacherId,
       dateKey: messageDateKey,
     });
+  }
+
+  // Сохраняем важные новости от Ивент-менеджера или партнера
+  if (detections.partnership && message.senderRole === "external") {
+     await db.collection("incident_cards").doc().set({
+        title: "ВАЖНОЕ СОБЫТИЕ",
+        summary: detections.partnership.topic,
+        location: "Школа / Эвент",
+        priority: detections.partnership.priority || "high",
+        status: "open",
+        senderName: message.senderName,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+     });
+     invalidateCollectionCache("incident_cards");
   }
 
   return {

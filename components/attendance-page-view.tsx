@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Users, GraduationCap, UserMinus, UserCheck, Activity } from "lucide-react";
+import { Users, GraduationCap, UserMinus, UserCheck, Activity, CheckCircle2 } from "lucide-react";
 
 import { useAppState } from "@/components/providers/app-provider";
 import { cn } from "@/lib/utils";
@@ -58,6 +58,29 @@ export function AttendancePageView() {
 
   const missingClasses = allClasses.filter(c => !latestReportsByClass.has(c));
 
+  const sendToCafeteria = async () => {
+    try {
+      const response = await fetch("/api/live/cafeteria", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          totalPresent: stats.totalPresent,
+          totalAbsent: stats.totalAbsent,
+          date: new Date().toLocaleDateString('ru-RU')
+        }),
+      });
+      if (response.ok) {
+        alert("Отчет успешно отправлен в столовую!");
+      } else {
+        const err = await response.json().catch(() => ({}));
+        alert("Ошибка при отправке: " + (err.error || response.status));
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Не удалось связаться с сервером WhatsApp.");
+    }
+  };
+
   return (
     <div className="h-full overflow-auto px-4 py-5 xl:px-6 xl:py-6">
       <div className="space-y-6">
@@ -72,8 +95,17 @@ export function AttendancePageView() {
             </div>
           </div>
 
-          <div className="rounded-full bg-[#103529] px-4 py-2.5 text-sm text-[#d8fff0]">
-            Сдали отчет: {stats.classesReported} / {allClasses.length} классов
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={sendToCafeteria}
+              className="flex items-center gap-2 rounded-full bg-[#103529] px-6 py-2.5 text-sm font-medium text-[#d8fff0] transition-all hover:bg-[#164a39] active:scale-95"
+            >
+              <Activity className="size-4" />
+              Отправить в столовую
+            </button>
+            <div className="rounded-full bg-[#1e293b] px-4 py-2.5 text-sm text-[#8ea0a7]">
+              Сдали отчет: {stats.classesReported} / {allClasses.length} классов
+            </div>
           </div>
         </div>
 

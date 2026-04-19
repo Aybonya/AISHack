@@ -2,31 +2,37 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { ChatList } from "@/components/chat-list";
+import { useAppState } from "@/components/providers/app-provider";
+import { cn } from "@/lib/utils";
 
 const NAV_WIDTH = 72;
 const CHAT_WIDTH = 360;
+const AISANA_CHAT_PATH = "/chats/chat-aisana";
 
 const mobileNav = [
   { href: "/", label: "Главная" },
   { href: "/chats", label: "Чаты" },
   { href: "/tasks", label: "Задачи" },
-  { href: "/incidents", label: "Инциденты" },
-  { href: "/attendance", label: "Посещаемость" },
   { href: "/schedule", label: "Календарь" },
   { href: "/documents", label: "Документы" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/";
-  const showChatList = pathname === "/" || pathname.startsWith("/chats");
+  const router = useRouter();
+  const { markChatRead } = useAppState();
+  const isPublicView = pathname === "/timetable";
+  const showChatList = !isPublicView && (pathname === "/" || pathname.startsWith("/chats"));
+  const orbActive = pathname === AISANA_CHAT_PATH;
 
-  if (pathname === "/timetable") {
-    return <div className="min-h-screen bg-[#0b141a] text-foreground">{children}</div>;
-  }
+  const handleOrbClick = () => {
+    markChatRead("chat-aisana");
+    router.push(AISANA_CHAT_PATH);
+  };
 
   return (
     <div className="min-h-screen bg-[#0b141a] text-foreground">
@@ -57,12 +63,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <div className="hidden h-screen w-full overflow-hidden bg-[#0b141a] xl:flex">
-        <aside
-          className="shrink-0 border-r border-white/[0.06] bg-[#111b21]"
-          style={{ width: NAV_WIDTH }}
-        >
-          <AppSidebar />
-        </aside>
+        {!isPublicView && (
+          <aside
+            className="shrink-0 border-r border-white/[0.06] bg-[#111b21]"
+            style={{ width: NAV_WIDTH }}
+          >
+            <AppSidebar />
+          </aside>
+        )}
 
         {showChatList ? (
           <section
@@ -73,10 +81,35 @@ export function AppShell({ children }: { children: ReactNode }) {
           </section>
         ) : null}
 
-        <main className="min-w-0 flex-1 overflow-hidden bg-[#0b141a]">{children}</main>
+        <main className={cn("min-w-0 flex-1 bg-[#0b141a]", isPublicView ? "overflow-y-auto" : "overflow-hidden")}>
+          {children}
+        </main>
       </div>
 
       <div className="xl:hidden">{children}</div>
+
+      {!isPublicView && (
+        <button
+          aria-label="Open AISana chat"
+          className="drift-orb"
+          data-active={orbActive ? "true" : "false"}
+          onClick={handleOrbClick}
+          type="button"
+        >
+        <span aria-hidden="true" className="drift-orb__text">
+          AIS
+        </span>
+        <span aria-hidden="true" className="drift-orb__voice">
+          <span className="drift-orb__bars">
+            {Array.from({ length: 9 }).map((_, index) => (
+              <span className="drift-orb__bar" key={index} />
+            ))}
+          </span>
+          <span className="drift-orb__ring" />
+          <span className="drift-orb__ring drift-orb__ring--outer" />
+        </span>
+      </button>
+      )}
     </div>
   );
 }

@@ -49,25 +49,63 @@ export function PublicTimetable() {
   }, [state.scheduleEntries]);
 
   const uniqueTeachers = useMemo(() => {
-    return Array.from(new Set(state.scheduleEntries.map((e) => e.teacherUserId))).map(id => {
+    const teachers = Array.from(new Set(state.scheduleEntries.map((e) => e.teacherUserId))).map(id => {
       const user = state.users.find(u => u.id === id);
       return { id, name: user?.name || id };
-    }).sort((a, b) => a.name.localeCompare(b.name));
+    });
+    // Добавляем завхоза
+    teachers.push({ id: "zavhoz", name: "Завхоз (Хоз. часть)" });
+    return teachers.sort((a, b) => a.name.localeCompare(b.name));
   }, [state.scheduleEntries, state.users]);
 
   const uniqueRooms = useMemo(() => {
     return Array.from(new Set(state.scheduleEntries.map((e) => e.room).filter(Boolean))).sort();
   }, [state.scheduleEntries]);
 
-  // Фильтруем расписание по выбранному элементу
   const filteredEntries = useMemo(() => {
+    if (activeTab === "teachers" && selectedItem === "zavhoz") {
+      // Показываем задачи для Завхоза в виде расписания
+      return state.tasks.filter(t => t.status !== "done").map((task, index) => {
+        // Firebase Timestamp может быть объектом { seconds, nanoseconds } или строкой
+        let date: Date;
+        const ca = task.createdAt as any;
+        if (ca && typeof ca === "object" && ca.seconds) {
+          date = new Date(ca.seconds * 1000);
+        } else if (ca) {
+          date = new Date(ca);
+        } else {
+          date = new Date();
+        }
+        
+        // День недели (0=вс,1=пн...6=сб). Выходные → понедельник
+        let dayNum = date.getDay();
+        if (dayNum === 0 || dayNum === 6) dayNum = 1;
+        
+        const lessonNum = (index % 8) + 1;
+        const dayKey = DAYS[dayNum - 1]?.key || "monday";
+        
+        return {
+          id: task.id,
+          weekday: dayKey,
+          lessonNumber: lessonNum,
+          subject: task.title,
+          room: task.status === "in_progress" ? "В процессе" : "Новая задача",
+          teacherUserId: "zavhoz",
+          className: task.assigneeUserId || "Завхоз",
+          startTime: "—",
+          endTime: "",
+          substitutionStatus: "none",
+        } as unknown as ScheduleEntry;
+      });
+    }
+
     return state.scheduleEntries.filter((entry) => {
       if (activeTab === "classes") return entry.className === selectedItem;
       if (activeTab === "teachers") return entry.teacherUserId === selectedItem || entry.substituteUserId === selectedItem;
       if (activeTab === "rooms") return entry.room === selectedItem;
       return false;
     });
-  }, [state.scheduleEntries, activeTab, selectedItem]);
+  }, [state.scheduleEntries, activeTab, selectedItem, state.tasks]);
 
   // Генерируем сетку с объединением пар (consecutive lessons)
   const gridData = useMemo(() => {
@@ -260,14 +298,14 @@ export function PublicTimetable() {
                             </div>
                           )}
                           
-                          {entries.map((entry) => {
+                          {entries.map((entry, idx) => {
                             const isSub = entry.substitutionStatus === "confirmed" && entry.substituteUserId;
                             const tId = isSub ? entry.substituteUserId! : entry.teacherUserId;
                             const colorClass = getSubjectColor(entry.subject);
                             
                             return (
                               <div 
-                                key={entry.id} 
+                                key={`${entry.id}_${entry.teacherUserId}_${idx}`} 
                                 className={cn(
                                   "flex-1 rounded-xl p-2.5 flex flex-col justify-between border relative overflow-hidden group hover:brightness-110 transition cursor-pointer",
                                   colorClass
@@ -285,16 +323,34 @@ export function PublicTimetable() {
                                 
                                 <div className="flex items-end justify-between mt-3 text-[11px] font-medium opacity-80">
                                   <span>{entry.room || "—"}</span>
-                                  <span className="text-right truncate ml-2">
-                                    {activeTab === "classes" 
-                                      ? getShortTeacherName(tId) 
-                                      : entry.className
-                                    }
+                                  <span className="text-right ml-2 flex flex-col items-end">
+                                    {activeTab === "classes" || activeTab === "rooms" ? (
+                                      isSub ? (
+                                        <div className="flex flex-col items-end gap-0.5">
+                                          <span className="line-through opacity-60 text-[9px]">{getShortTeacherName(entry.teacherUserId)}</span>
+                                          <span>{getShortTeacherName(entry.substituteUserId!)}</span>
+                                        </div>
+                                      ) : (
+                                        <span className="truncate">{getShortTeacherName(tId)}</span>
+                                      )
+                                    ) : (
+                                      // Вкладка "Учителя"
+                                      <div className="flex flex-col items-end gap-0.5">
+                                        <span className="truncate">{entry.className}</span>
+                                        {isSub && (
+                                          <div className="flex items-center gap-1 text-[9px] bg-black/20 px-1 rounded">
+                                            <span className="line-through opacity-60">{getShortTeacherName(entry.teacherUserId)}</span>
+                                            <span className="text-white font-bold">{getShortTeacherName(entry.substituteUserId!)}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </span>
                                 </div>
                               </div>
                             );
                           })}
+
                         </div>
                       );
                     })}

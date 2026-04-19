@@ -1,4 +1,4 @@
-import "server-only";
+import "server-only"; // Refreshed to clear file lock
 
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -73,6 +73,14 @@ type RuntimeModules = {
   utils: {
     toId: (value: string) => string;
   };
+  greenApiService: {
+    sendGreenApiMessage: (input: {
+      idInstance: string;
+      apiTokenInstance: string;
+      chatId: string;
+      message: string;
+    }) => Promise<unknown>;
+  };
 };
 
 export interface LiveSnapshot {
@@ -93,6 +101,7 @@ function tryLoadRuntime(): { runtime: RuntimeModules | null; error: string | nul
         directorAiService: requireFromRepo("GreenAPI/AISHack/src/services/director-ai-service.js"),
         chatNoteService: requireFromRepo("GreenAPI/AISHack/src/services/chat-note-service.js"),
         managementService: requireFromRepo("GreenAPI/AISHack/src/services/management-service.js"),
+        greenApiService: requireFromRepo("GreenAPI/AISHack/src/services/green-api-service.js"),
         utils: requireFromRepo("GreenAPI/AISHack/src/utils.js"),
       },
       error: null,
@@ -466,79 +475,153 @@ function buildGenericAiMessage(messageId: string, chatId: string, createdAt: str
   };
 }
 
-const PINNED_CHAT_TEMPLATES: Array<Pick<Chat, "id" | "title" | "type" | "avatar" | "pinned">> = [
-  { id: "chat-curators", title: "Кураторы и Директор",  type: "department", avatar: "КД", pinned: true },
-  { id: "chat-general",   title: "Учителя и Директор",  type: "group",      avatar: "УД", pinned: true },
-  { id: "chat-cafeteria", title: "Столовая и Директор", type: "service",    avatar: "СД", pinned: true },
-  { id: "chat-facilities",title: "Завхоз и Директор",  type: "service",    avatar: "ЗД", pinned: true },
+const PINNED_CHAT_TEMPLATES: Array<Pick<Chat, "id" | "title" | "type" | "avatar" | "pinned"> & { waId?: string }> = [
+  { id: "chat-curators", title: "Кураторы и Директор",  type: "department", avatar: "КД", pinned: true, waId: process.env.GREEN_API_CURATORS_GROUP_CHAT_ID },
+  { id: "chat-general",   title: "Учителя и Директор",  type: "group",      avatar: "УД", pinned: true, waId: process.env.GREEN_API_TEACHERS_GROUP_CHAT_ID },
+  { id: "chat-admin",     title: "Администрация",      type: "group",      avatar: "АД", pinned: true, waId: process.env.GREEN_API_ADMIN_GROUP_CHAT_ID },
+  { id: "chat-cafeteria", title: "Столовая и Директор", type: "service",    avatar: "СД", pinned: true, waId: process.env.GREEN_API_CAFETERIA_GROUP_CHAT_ID },
+  { id: "chat-facilities",title: "Завхоз и Директор",  type: "service",    avatar: "ЗД", pinned: true, waId: process.env.GREEN_API_FACILITIES_GROUP_CHAT_ID },
 ];
 
-function buildChats(messages: Message[], participants: string[], seed: AppState): Chat[] {
-  const chats: Chat[] = [];
+function findPinnedChatTemplate(input: {
+  chatId?: unknown;
+  chatName?: unknown;
+  source?: unknown;
+}) {
+  const chatId = asString(input.chatId);
+  const chatName = normalizeText(input.chatName).toLowerCase();
+  const source = asString(input.source).toLowerCase();
 
-  // —— 1. Закреплённые системные группы сверху ———————————————————
-  PINNED_CHAT_TEMPLATES.forEach((template) => {
-    const chatMessages = messages.filter((m) => m.chatId === template.id);
-    const lastMessageId = chatMessages.at(-1)?.id ?? "";
-    const hasImportant = chatMessages.some(
-      (m) => m.parsedIntent === "partnership" || m.parsedIntent === "incident"
-    );
-    const fallbackUnread = seed.chats.find((c) => c.id === template.id)?.unreadCount ?? 0;
-
-    chats.push({
-      ...template,
-      participants,
-      unreadCount: chatMessages.length > 0
-        ? Math.min(chatMessages.filter((m) => m.senderType === "teacher").length, 9)
-        : fallbackUnread,
-      lastMessageId,
-      isImportant: hasImportant,
-    });
-  });
-
-  // —— 2. Индивидуальные чаты для каждого неизвестного номера ———————————
-  const personalMessages = messages.filter((m) =>
-    !PINNED_CHAT_TEMPLATES.some((t) => t.id === m.chatId)
+  const directMatch = PINNED_CHAT_TEMPLATES.find((template) =>
+    template.id === chatId || (template.waId && template.waId === chatId),
   );
 
-  // Группируем по chatId (u<phoneNumber>)
-  const perPersonChat = new Map<string, Message[]>();
-  personalMessages.forEach((m) => {
-    const list = perPersonChat.get(m.chatId) ?? [];
+  if (directMatch) {
+    return directMatch;
+  }
+
+  if (source.includes("replacement_group_notice")) {
+    return PINNED_CHAT_TEMPLATES.find((template) => template.id === "chat-general");
+  }
+
+  if (source.includes("attendance_group_notice")) {
+    return PINNED_CHAT_TEMPLATES.find((template) => template.id === "chat-curators");
+  }
+
+  if (source.includes("incident_group_notice") || source.includes("task_group_notice")) {
+    return PINNED_CHAT_TEMPLATES.find((template) => template.id === "chat-facilities");
+  }
+
+  if (source.includes("cafeteria_report")) {
+    return PINNED_CHAT_TEMPLATES.find((template) => template.id === "chat-cafeteria");
+  }
+
+  if (!chatName) {
+    return undefined;
+  }
+
+  if (chatName.includes("учител") && chatName.includes("директор")) {
+    return PINNED_CHAT_TEMPLATES.find((template) => template.id === "chat-general");
+  }
+
+  if (chatName.includes("куратор")) {
+    return PINNED_CHAT_TEMPLATES.find((template) => template.id === "chat-curators");
+  }
+
+  if (chatName.includes("завхоз") || chatName.includes("слесар") || chatName.includes("хоз")) {
+    return PINNED_CHAT_TEMPLATES.find((template) => template.id === "chat-facilities");
+  }
+
+  if (chatName.includes("столов")) {
+    return PINNED_CHAT_TEMPLATES.find((template) => template.id === "chat-cafeteria");
+  }
+
+  if (chatName.includes("админ")) {
+    return PINNED_CHAT_TEMPLATES.find((template) => template.id === "chat-admin");
+  }
+
+  return undefined;
+}
+
+function buildChats(messages: Message[], users: Map<string, User>, seed: AppState): Chat[] {
+  const chats: Chat[] = [];
+  const perChat = new Map<string, Message[]>();
+
+  // Группируем все сообщения по chatId
+  messages.forEach((m) => {
+    const list = perChat.get(m.chatId) ?? [];
     list.push(m);
-    perPersonChat.set(m.chatId, list);
+    perChat.set(m.chatId, list);
   });
 
-  perPersonChat.forEach((msgs, chatId) => {
+  const allParticipantIds = Array.from(users.keys());
+  const participants = [
+    "ai-assistant",
+    ...allParticipantIds.filter((id) => id !== "ai-assistant"),
+  ];
+
+  perChat.forEach((msgs, chatId) => {
     const lastMessageId = msgs.at(-1)?.id ?? "";
     const lastMsg = msgs.at(-1);
-    const isImportant = msgs.some((m) => m.parsedIntent === "partnership");
+    const isImportant = msgs.some((m) => m.parsedIntent === "partnership" || m.parsedIntent === "incident");
     const phone = chatId.replace(/^u-/, "");
-    // Получаем имя отправителя из сообщений
-    const senderUser = participants.length > 0
-      ? null
-      : null; // находим через senderId
-    const displayName = lastMsg?.text
-      ? phone.length > 6 ? `+${phone}` : phone
-      : chatId;
+    const isWaGroup = chatId.endsWith("@g.us");
 
-    // Имя из первого сообщения senderId
-    const senderName = msgs[0]?.senderId ?? displayName;
+    const displayName = lastMsg?.text ? (phone.length > 6 ? `+${phone}` : phone) : chatId;
+    const chatName = msgs.map((m) => m.chatName).find(Boolean);
+    const firstMessageSenderId = msgs[0]?.senderId;
+    const resolvedSenderName = users.get(firstMessageSenderId ?? "")?.name ?? firstMessageSenderId ?? displayName;
+    const senderName = chatName ?? resolvedSenderName;
 
     const fallbackUnread = seed.chats.find((c) => c.id === chatId)?.unreadCount ?? 0;
+    
+    // Проверяем, совпадает ли название с системными закрепленными или по waId
+    const templateMatch =
+      findPinnedChatTemplate({
+        chatId,
+        chatName,
+      }) ??
+      PINNED_CHAT_TEMPLATES.find((template) => template.title === chatName);
+    const finalTitle = templateMatch?.title ?? senderName;
+
     chats.push({
       id: chatId,
-      title: senderName,
-      type: "direct",
-      avatar: senderName.slice(0, 2).toUpperCase(),
+      title: finalTitle,
+      type: templateMatch ? templateMatch.type : (isWaGroup ? "group" : "direct"),
+      avatar: templateMatch ? templateMatch.avatar : finalTitle.slice(0, 2).toUpperCase(),
       participants,
       unreadCount: Math.min(msgs.filter((m) => m.senderType !== "director" && m.senderType !== "ai").length, 9) || fallbackUnread,
       lastMessageId,
-      pinned: false,
+      pinned: templateMatch ? true : false,
       isImportant,
-      phoneNumber: phone,
-      isUnknown: true,
+      phoneNumber: templateMatch?.waId || phone,
+      isUnknown: !templateMatch && !isWaGroup,
     });
+  });
+
+  // Добавляем пустые закрепленные чаты, если для них еще нет сообщений (чтобы UI не ломался)
+  PINNED_CHAT_TEMPLATES.forEach((template) => {
+    if (!chats.find(c => c.title === template.title || c.id === template.id)) {
+      chats.push({
+        ...template,
+        participants,
+        unreadCount: seed.chats.find((c) => c.id === template.id)?.unreadCount ?? 0,
+        lastMessageId: "",
+        isImportant: false,
+      });
+    }
+  });
+
+  // Сортировка: сначала закрепленные (в порядке PINNED_CHAT_TEMPLATES), потом остальные (новые сверху)
+  chats.sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    if (a.pinned && b.pinned) {
+      const idxA = PINNED_CHAT_TEMPLATES.findIndex(t => t.title === a.title || t.id === a.id);
+      const idxB = PINNED_CHAT_TEMPLATES.findIndex(t => t.title === b.title || t.id === b.id);
+      return idxA - idxB;
+    }
+    return 0; // Для не-закрепленных можно добавить сортировку по дате
   });
 
   return chats;
@@ -556,16 +639,29 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
     };
   }
 
-  const [schoolData, rawMessages, rawAttendance, rawIncidents, rawTasks, rawCases, rawAssignments] =
-    await Promise.all([
-      runtime.schoolDataService.loadSchoolData({ forceRefresh: true }),
-      runtime.schoolDataService.loadCollection("chat_messages", { limit: 400, forceRefresh: true }),
-      runtime.schoolDataService.loadCollection("attendance_updates", { limit: 400, forceRefresh: true }),
-      runtime.schoolDataService.loadCollection("incident_cards", { limit: 400, forceRefresh: true }),
-      runtime.schoolDataService.loadCollection("director_tasks", { limit: 400, forceRefresh: true }),
-      runtime.schoolDataService.loadCollection("replacement_cases", { limit: 400, forceRefresh: true }),
-      runtime.schoolDataService.loadCollection("replacement_assignments", { limit: 400, forceRefresh: true }),
-    ]);
+  let schoolData, rawMessages, rawAttendance, rawIncidents, rawTasks, rawCases, rawAssignments;
+  try {
+    console.log("[BRIDGE] Starting Firebase data fetch...");
+    [schoolData, rawMessages, rawAttendance, rawIncidents, rawTasks, rawCases, rawAssignments] =
+      await Promise.all([
+        runtime.schoolDataService.loadSchoolData({ forceRefresh: true }),
+        runtime.schoolDataService.loadCollection("chat_messages", { limit: 400, forceRefresh: true }),
+        runtime.schoolDataService.loadCollection("attendance_updates", { limit: 400, forceRefresh: true }),
+        runtime.schoolDataService.loadCollection("incident_cards", { limit: 400, forceRefresh: true }),
+        runtime.schoolDataService.loadCollection("director_tasks", { limit: 400, forceRefresh: true }),
+        runtime.schoolDataService.loadCollection("replacement_cases", { limit: 400, forceRefresh: true }),
+        runtime.schoolDataService.loadCollection("replacement_assignments", { limit: 400, forceRefresh: true }),
+      ]);
+    console.log(`[BRIDGE] Fetch successful. Messages: ${rawMessages?.length}, Attendance: ${rawAttendance?.length}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("Firebase fetch error:", message);
+    return {
+      mode: "demo",
+      state: seed,
+      error: "Ошибка подключения к базе данных: " + message,
+    };
+  }
 
   const users = new Map<string, User>();
   seed.users
@@ -594,6 +690,15 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
   const classCatalog = schoolData.classes.map((item) => asString(item.id)).filter(Boolean);
   const assignmentByEntryId = new Map<string, BackendEntity>();
   const assignmentByCaseId = new Map<string, BackendEntity>();
+  const caseByEntryId = new Map<string, BackendEntity>();
+
+  rawCases.forEach((c) => {
+    const entryId = asString(c.entryId);
+    if (entryId) {
+      caseByEntryId.set(entryId, c);
+    }
+  });
+
   rawAssignments.forEach((assignment) => {
     const entryId = asString(assignment.entryId);
     const caseId = asString(assignment.caseId);
@@ -630,6 +735,26 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
     }
 
     const approvedAssignment = assignmentByEntryId.get(entryId);
+    const replacementCase = caseByEntryId.get(entryId);
+    
+    let substitutionStatus = undefined;
+    let substituteUserId = undefined;
+
+    if (approvedAssignment) {
+      substitutionStatus = "confirmed";
+      substituteUserId = approvedAssignment.substituteTeacherId;
+    } else if (replacementCase) {
+      if (replacementCase.status === "approved" || replacementCase.status === "confirmed") {
+        substitutionStatus = "confirmed";
+        substituteUserId = replacementCase.candidateTeacherId;
+      } else if (replacementCase.status === "suggested" || replacementCase.candidateTeacherId) {
+        substitutionStatus = "candidate_found";
+        substituteUserId = replacementCase.candidateTeacherId;
+      } else {
+        substitutionStatus = "needs_replacement";
+      }
+    }
+
     return {
       id: entryId,
       className: asString(entry.classId, "-"),
@@ -640,8 +765,8 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
       lessonNumber: Number(entry.lessonNumber || 0),
       startTime: entry.timeStart || "08:00",
       endTime: entry.timeEnd || "08:45",
-      substituteUserId: approvedAssignment?.substituteTeacherId || undefined,
-      substitutionStatus: approvedAssignment ? "confirmed" : undefined,
+      substituteUserId,
+      substitutionStatus,
     };
   });
 
@@ -814,19 +939,18 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
       const linkedIncidents = incidentsByMessageId.get(messageId) ?? [];
       const linkedTasks = tasksByMessageId.get(messageId) ?? [];
       const linkedSuggestions = suggestionsByMessageId.get(messageId) ?? [];
-      const isOfficialTeacher = item.senderRole === "director" || !!item.senderTeacherId;
       // Строим chatId: для известных учителей — системные группы, для неизвестных — персональный чат по номеру
       const rawPhone = String(item.senderPhone || item.sender || "").replace(/[^0-9]/g, "");
       const isPartnership = item.metadata?.partnership != null || item.partnership != null;
       const perPhoneChatId = rawPhone ? `u-${rawPhone}` : `u-${messageId}`;
-      const chatId = isOfficialTeacher
-        ? inferChatId({
-            attendance: linkedAttendance,
-            incidents: linkedIncidents,
-            tasks: linkedTasks,
-            suggestions: linkedSuggestions,
-          }, isOfficialTeacher, isPartnership)
-        : perPhoneChatId;
+      const rawChatId = asString(item.chatId);
+      const isWaGroup = rawChatId.endsWith("@g.us");
+      const templateMatch = findPinnedChatTemplate({
+        chatId: rawChatId,
+        chatName: item.chatName,
+        source: item.source,
+      });
+      const chatId = templateMatch?.id || (isWaGroup ? rawChatId : perPhoneChatId);
       const createdAt = toIsoTimestamp(item.createdAt);
       const senderDisplayName = item.senderName || (rawPhone ? `+${rawPhone}` : "Неизвестный");
       const senderId =
@@ -839,6 +963,9 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
               role: "teacher",
               chatId,
             });
+
+      const dashboardChatName = templateMatch?.title || item.chatName || undefined;
+
 
       const parsedIntent: ParsedIntent =
         isPartnership
@@ -862,6 +989,7 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
         createdAt,
         kind: "text",
         parsedIntent,
+        ...(dashboardChatName ? { chatName: dashboardChatName } : {}),
       });
 
       if (linkedTasks.length > 0) {
@@ -897,7 +1025,7 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
 
     });
 
-  const chats = buildChats(messages, Array.from(users.keys()), seed);
+  const chats = buildChats(messages, users, seed);
 
   return {
     mode: "live",
@@ -942,13 +1070,40 @@ export async function processLiveMessage(input: {
   const sender = snapshot.state.users.find((user) => user.id === input.senderId);
   const schoolData = await runtime.schoolDataService.loadSchoolData({ forceRefresh: true });
 
+  // Если Директор пишет из дашборда — отправляем сообщение в WhatsApp (если это реальный chatId, а не заглушка)
+  let waChatId = input.chatId.replace(/^u-/, "");
+  
+  // Проверяем, не является ли это алиасом (например, chat-general)
+  const template = PINNED_CHAT_TEMPLATES.find((pinnedChat) => pinnedChat.id === input.chatId);
+  if (template?.waId) {
+    waChatId = template.waId;
+  }
+
+  if (input.senderType === "director" && waChatId && !waChatId.startsWith("chat-")) {
+    try {
+      const idInstance = process.env.GREEN_API_ID_INSTANCE;
+      const apiTokenInstance = process.env.GREEN_API_TOKEN;
+      if (idInstance && apiTokenInstance) {
+        await runtime.greenApiService.sendGreenApiMessage({
+          idInstance,
+          apiTokenInstance,
+          chatId: waChatId.includes("@") ? waChatId : `${waChatId}@c.us`,
+          message: input.text,
+        });
+        console.log(`[DASHBOARD] Отправлено сообщение в WhatsApp на ${waChatId}: ${input.text}`);
+      }
+    } catch (sendErr) {
+      console.error("[DASHBOARD] Ошибка отправки в WhatsApp:", sendErr);
+    }
+  }
+
   await runtime.directorAiService.processIncomingMessage({
     message: {
       text: input.text,
       senderName: sender?.name || input.senderId,
       senderRole: input.senderType === "director" ? "director" : "teacher",
       source: input.kind === "voice" ? "dashboard_voice" : "dashboard_chat",
-      chatId: input.chatId,
+      chatId: input.chatId.replace(/^u-/, ""),
       externalMessageId: null,
     },
     schoolData,

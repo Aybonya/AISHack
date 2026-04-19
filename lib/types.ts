@@ -17,6 +17,7 @@ export type ParsedIntent =
   | "attendance"
   | "incident"
   | "task"
+  | "task_update"
   | "substitution"
   | "partnership"
   | "generic";
@@ -67,6 +68,7 @@ export interface Chat {
 export interface Message {
   id: string;
   chatId: string;
+  chatName?: string;
   senderId: string;
   senderType: SenderType;
   text: string;
@@ -128,6 +130,8 @@ export interface TeacherAbsence {
 
 export interface ScheduleEntry {
   id: string;
+  entryType?: "lesson" | "event";
+  date?: string;
   className: string;
   subject: string;
   teacherUserId: string;
@@ -138,6 +142,8 @@ export interface ScheduleEntry {
   endTime: string;
   substituteUserId?: string;
   substitutionStatus?: SubstitutionStatus;
+  notes?: string;
+  createdBy?: string;
 }
 
 export interface DocumentChunk {
@@ -183,6 +189,10 @@ export interface DocumentAnswer {
   bullets: string[];
   relevantChunkIds: string[];
   createdAt: string;
+  source?: "explain" | "workspace";
+  summary?: string;
+  fileName?: string;
+  originalText?: string;
 }
 
 export interface AttendanceExtraction {
@@ -296,4 +306,5 @@ export interface SendMessageInput {
   senderType: SenderType;
   text: string;
   kind?: MessageKind;
+  metadata?: Message["metadata"];
 }

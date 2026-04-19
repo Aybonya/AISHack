@@ -1,7 +1,7 @@
 require("dotenv").config();
 
 const express = require("express");
-const { loadSchoolData, loadCollection } = require("./services/school-data-service");
+const { loadSchoolData, loadCollection, invalidateCollectionCache } = require("./services/school-data-service");
 const {
   buildTeacherIndex,
   parseChatNote,
@@ -30,6 +30,20 @@ const {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const GROUP_CHAT_NAMES = {
+  teachers: "Учителя и Директор",
+  curators: "Кураторы и Директор",
+  facilities: "Завхоз и Директор",
+  cafeteria: "Столовая и Директор",
+};
+
+const GROUP_CHAT_ENV = {
+  teachers: process.env.GREEN_API_TEACHERS_GROUP_CHAT_ID || null,
+  curators: process.env.GREEN_API_CURATORS_GROUP_CHAT_ID || null,
+  facilities: process.env.GREEN_API_FACILITIES_GROUP_CHAT_ID || null,
+  cafeteria: process.env.GREEN_API_CAFETERIA_GROUP_CHAT_ID || null,
+};
+
 app.use(express.json());
 
 app.get("/", (_req, res) => {
@@ -50,6 +64,125 @@ function mergeParsedNote(parsedNote, overrides) {
     lessonNumber: overrides.lessonNumber || parsedNote.lessonNumber,
     classId: overrides.classId || parsedNote.classId,
   };
+}
+
+async function logOutgoingMessage({
+  chatId,
+  chatName = null,
+  text,
+  source = "green_api_outbound",
+  senderName = "Директор",
+  senderRole = "director",
+  linkedMessageId = null,
+}) {
+  if (!chatId || !text) {
+    return null;
+  }
+
+  const { db, admin } = require("./firebase");
+  const ref = db.collection("chat_messages").doc();
+  await ref.set({
+    chatId,
+    chatName,
+    text,
+    source,
+    senderName,
+    senderRole,
+    senderTeacherId: null,
+    senderPhone: String(chatId).endsWith("@g.us") ? null : chatId,
+    sender: String(chatId).endsWith("@g.us") ? null : chatId,
+    externalMessageId: null,
+    linkedMessageId,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  invalidateCollectionCache("chat_messages");
+  return ref.id;
+}
+
+async function sendAndLogMessage({
+  chatId,
+  chatName = null,
+  message,
+  source,
+  senderName,
+  senderRole,
+  linkedMessageId,
+}) {
+  if (!chatId || !message) {
+    return { skipped: true };
+  }
+
+  const reply = await sendGreenApiMessage({
+    idInstance: process.env.GREEN_API_ID_INSTANCE,
+    apiTokenInstance: process.env.GREEN_API_TOKEN,
+    chatId,
+    message,
+  });
+
+  await logOutgoingMessage({
+    chatId,
+    chatName,
+    text: message,
+    source,
+    senderName,
+    senderRole,
+    linkedMessageId,
+  });
+
+  return reply;
+}
+
+async function resolveGroupChatId(groupKey) {
+  const envChatId = GROUP_CHAT_ENV[groupKey];
+  if (envChatId) {
+    return envChatId;
+  }
+
+  return getChatIdByName(GROUP_CHAT_NAMES[groupKey]);
+}
+
+function buildReplacementGroupMessage(result, originalMessage) {
+  const recommendations = result.result?.replacement?.recommendations || [];
+  const preferredRecommendation =
+    recommendations.find((item) => {
+      const candidate = item.candidates?.[0];
+      return candidate && candidate.teacherId !== "curator_replacement";
+    }) || recommendations[0];
+
+  if (!preferredRecommendation) {
+    return null;
+  }
+
+  const candidate = preferredRecommendation.candidates?.[0];
+  const author = originalMessage.senderName || "Учитель";
+  if (!candidate) {
+    return `📚 *Замена для группы учителей*\nОт: ${author}\n${preferredRecommendation.entry.classId}, ${preferredRecommendation.entry.lessonNumber} урок, ${preferredRecommendation.entry.subjectName}\nСвободный заменяющий пока не найден.`;
+  }
+
+  return `📚 *Замена для группы учителей*\nОт: ${author}\nКласс: ${preferredRecommendation.entry.classId}\nУрок: ${preferredRecommendation.entry.lessonNumber}\nПредмет: ${preferredRecommendation.entry.subjectName}\nЗамещает: ${candidate.fullName}`;
+}
+
+function buildIncidentGroupMessage(result, originalMessage) {
+  const incident = result.detections?.incident;
+  if (!incident) {
+    return null;
+  }
+
+  return `🔧 *Новый инцидент*\nОт: ${originalMessage.senderName || "Сотрудник"}\nПроблема: ${incident.summary}\nЛокация: ${incident.roomText || incident.location || "Уточняется"}\nКарточка инцидента создана в дашборде.`;
+}
+
+function buildAttendanceGroupMessage(result, originalMessage) {
+  const attendanceList = result.detections?.attendanceList || (result.detections?.attendance ? [result.detections.attendance] : []);
+  if (!attendanceList.length) {
+    return null;
+  }
+
+  const lines = attendanceList
+    .map((item) => `• ${item.classId}: ${item.presentCount} присутствуют, ${item.absentCount} отсутствуют`)
+    .join("\n");
+
+  return `👥 *Посещаемость от куратора*\nОт: ${originalMessage.senderName || "Куратор"}\n${lines}\nДанные уже внесены в дашборд.`;
 }
 
 app.get("/api/health", async (_req, res) => {
@@ -150,17 +283,18 @@ app.post("/api/messages/process", async (req, res) => {
 app.post("/api/actions/send-cafeteria", async (req, res) => {
   try {
     const { getLatestAttendance } = require("./services/dashboard-service");
-    const { sendGreenApiMessage } = require("./services/green-api-service");
+    const { sendGreenApiMessage, getPhoneByRole } = require("./services/green-api-service");
     
     const attendance = await getLatestAttendance();
     const totals = attendance.totals || { present: 0, absent: 0 };
     
     const text = `*Свод по столовой* 🍲\nВсего порций (присутствуют): ${totals.present}\nОтсутствуют: ${totals.absent}\nСдало классов: ${totals.classesReported || 0}`;
+    const cafeteriaPhone = getPhoneByRole("cafeteria");
     
     const reply = await sendGreenApiMessage({
       idInstance: process.env.GREEN_API_ID_INSTANCE,
       apiTokenInstance: process.env.GREEN_API_TOKEN,
-      chatId: "77086187050@c.us",
+      chatId: cafeteriaPhone,
       message: text,
     });
     
@@ -208,32 +342,120 @@ app.post("/api/integrations/green-api/webhook", async (req, res) => {
     const replyText = buildReplyFromResult(result);
     let reply = null;
     if (replyText) {
-      reply = await sendGreenApiMessage({
-        idInstance: process.env.GREEN_API_ID_INSTANCE,
-        apiTokenInstance: process.env.GREEN_API_TOKEN,
+      reply = await sendAndLogMessage({
         chatId: message.chatId,
+        chatName: message.chatName || null,
         message: replyText,
+        source: "green_api_auto_reply",
+        senderName: "Директор",
+        senderRole: "director",
+        linkedMessageId: result.messageId,
       });
     } else {
       console.log(`[IGNORE] Сообщение от ${message.chatId} проигнорировано (нет полезной нагрузки).`);
     }
 
-    // ── СИМУЛЯЦИЯ ОТПРАВКИ УВЕДОМЛЕНИЯ ЗАМЕНЯЮЩЕМУ УЧИТЕЛЮ ──
+    // ── УВЕДОМЛЕНИЕ ЗАМЕНЯЮЩЕМУ УЧИТЕЛЮ (Реальная отправка) ──
     if (result.result?.replacement?.recommendations) {
+      const { getPhoneByTeacherId } = require("./services/green-api-service");
       for (const rec of result.result.replacement.recommendations) {
         const topCandidate = rec.candidates?.[0];
         if (topCandidate) {
-          const notifyText = `🔔 *Уведомление о замене*\nЗдравствуйте, ${topCandidate.fullName}!\nВ связи с отсутствием коллеги, вы назначены на замену:\nКласс: ${rec.entry.classId}\nУрок: ${rec.entry.lessonNumber}\nПредмет: ${rec.entry.subjectName}\nПожалуйста, подтвердите получение.`;
-          
-          // Отправляем симуляцию в тот же чат (т.к. у нас нет базы номеров телефонов всех учителей)
-          await sendGreenApiMessage({
-            idInstance: process.env.GREEN_API_ID_INSTANCE,
-            apiTokenInstance: process.env.GREEN_API_TOKEN,
-            chatId: message.chatId,
-            message: `🤖 *[Симуляция отправки на личный номер кандидата]*\n${notifyText}`,
-          });
+          const subPhone = getPhoneByTeacherId(topCandidate.teacherId);
+          if (subPhone) {
+            const notifyText = `🔔 *Уведомление о замене*\nЗдравствуйте, ${topCandidate.fullName}!\nВ связи с отсутствием коллеги, вы назначены на замену:\nКласс: ${rec.entry.classId}\nУрок: ${rec.entry.lessonNumber}\nПредмет: ${rec.entry.subjectName}\nПожалуйста, подтвердите получение.`;
+            
+            await sendAndLogMessage({
+              chatId: subPhone,
+              message: notifyText,
+              source: "replacement_candidate_notice",
+              senderName: "Директор",
+              senderRole: "director",
+              linkedMessageId: result.messageId,
+            });
+            console.log(`[NOTIFY] Уведомление отправлено ${topCandidate.fullName} на номер ${subPhone}`);
+          }
         }
       }
+
+      const teachersGroupChatId = await resolveGroupChatId("teachers");
+      const groupText = buildReplacementGroupMessage(result, message);
+      if (teachersGroupChatId && groupText) {
+        await sendAndLogMessage({
+          chatId: teachersGroupChatId,
+          chatName: GROUP_CHAT_NAMES.teachers,
+          message: groupText,
+          source: "replacement_group_notice",
+          senderName: "Директор",
+          senderRole: "director",
+          linkedMessageId: result.messageId,
+        });
+      }
+    }
+
+    // ── УВЕДОМЛЕНИЕ ЗАВХОЗУ о новой задаче ──────────────────────────────────
+    if (result.result?.incidentId || result.result?.taskIds?.length > 0) {
+      const { getPhoneByRole } = require("./services/green-api-service");
+      const zavhozPhone = getPhoneByRole("facilities");
+      
+      // Ищем группу Завхоза
+      const groupChatId = await resolveGroupChatId("facilities");
+      const targetChatId = groupChatId || zavhozPhone;
+
+      if (targetChatId) {
+        // Если сообщение про срочные вещи (сломалось, протечка и т.д.) - помечаем срочно
+        const lowerText = message.text.toLowerCase();
+        const isUrgent = lowerText.includes("слома") || lowerText.includes("течет") || lowerText.includes("протек");
+        const urgencyMarker = isUrgent ? "🔴 *СРОЧНО* " : "🔧 ";
+
+        const taskText = result.result?.incidentId
+          ? buildIncidentGroupMessage(result, message)
+          : `${urgencyMarker}*Новая задача*\nОт: ${message.senderName || "Сотрудник"}\nГде: Уточняется\n\n"${message.text}"\n\nПожалуйста, ознакомьтесь и выполните.`;
+        await sendAndLogMessage({
+          chatId: targetChatId,
+          message: taskText,
+          chatName: groupChatId ? GROUP_CHAT_NAMES.facilities : null,
+          source: result.result?.incidentId ? "incident_group_notice" : "task_group_notice",
+          senderName: "Директор",
+          senderRole: "director",
+          linkedMessageId: result.messageId,
+        });
+        console.log(`[NOTIFY] Задача отправлена Завхозу на ${targetChatId}`);
+      }
+    }
+
+    if (result.result?.attendanceUpdateId && (message.senderRole === "curator" || message.senderRole === "teacher")) {
+      const curatorsGroupChatId = await resolveGroupChatId("curators");
+      const attendanceText = buildAttendanceGroupMessage(result, message);
+      if (curatorsGroupChatId && attendanceText) {
+        await sendAndLogMessage({
+          chatId: curatorsGroupChatId,
+          chatName: GROUP_CHAT_NAMES.curators,
+          message: attendanceText,
+          source: "attendance_group_notice",
+          senderName: "Директор",
+          senderRole: "director",
+          linkedMessageId: result.messageId,
+        });
+      }
+    }
+
+    // ── ВАЖНЫЕ СООБЩЕНИЯ от внешних контактов ───────────────────────────────
+    if (message.senderRole === "external" && result.result?.partnership) {
+      const { db: fireDb, admin: fireAdmin } = require("./firebase");
+      const partnershipData = result.result.partnership;
+      try {
+        const snap = await fireDb.collection("chat_messages")
+          .where("externalMessageId", "==", message.externalMessageId)
+          .limit(1).get();
+        if (!snap.empty) {
+          await snap.docs[0].ref.set(
+            { isImportant: true, importantTopic: partnershipData.topic || "Важное" },
+            { merge: true }
+          );
+        }
+        console.log(`[IMPORTANT] Помечено как важное: ${partnershipData.topic}`);
+      } catch(e) { console.warn("[IMPORTANT] Ошибка пометки:", e.message); }
     }
 
     res.json({
@@ -243,6 +465,7 @@ app.post("/api/integrations/green-api/webhook", async (req, res) => {
       replyText,
       reply,
     });
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -276,9 +499,70 @@ app.post("/api/replacements/:caseId/confirm", async (req, res) => {
       candidateTeacherId: req.body.candidateTeacherId,
       approvedBy: req.body.approvedBy,
     });
+
+    // Отправляем уведомление в WhatsApp назначенному учителю
+    if (candidate) {
+      const { getPhoneByTeacherId } = require("./services/green-api-service");
+      const subPhone = getPhoneByTeacherId(candidate.teacherId);
+      if (subPhone) {
+        const msg = `✅ *Замена подтверждена*\n${candidate.fullName}, вам назначена замена.\nДетали на дашборде.`;
+        await sendGreenApiMessage({
+          idInstance: process.env.GREEN_API_ID_INSTANCE,
+          apiTokenInstance: process.env.GREEN_API_TOKEN,
+          chatId: subPhone,
+          message: msg,
+        });
+      }
+    }
+
     res.json({ ok: true, candidate });
   } catch (error) {
     res.status(404).json({ error: error.message });
+  }
+});
+
+async function getChatIdByName(targetName) {
+  try {
+    const { db } = require("./firebase");
+    const snap = await db.collection("chat_messages").where("chatName", "==", targetName).limit(5).get();
+    if (!snap.empty) {
+      const groupDoc = snap.docs.find((doc) => String(doc.data().chatId || "").endsWith("@g.us"));
+      return (groupDoc || snap.docs[0]).data().chatId;
+    }
+  } catch (e) {
+    console.error("Ошибка поиска группы по имени:", e.message);
+  }
+  return null;
+}
+
+app.post("/api/integrations/cafeteria/send-report", async (req, res) => {
+  try {
+    const { totalPresent, totalAbsent, date } = req.body;
+    const { getPhoneByRole } = require("./services/green-api-service");
+    const cafeteriaPhone = getPhoneByRole("cafeteria");
+
+    // Пытаемся найти ID группы "Столовая и Директор"
+    const groupChatId = await getChatIdByName("Столовая и Директор");
+    const targetChatId = groupChatId || cafeteriaPhone;
+
+    if (!targetChatId) {
+      throw new Error("Номер столовой или группа не найдены");
+    }
+
+    const message = `🍴 *ОТЧЕТ ПО ПИТАНИЮ* (${date || "Сегодня"})\n--------------------------\n✅ Присутствуют: *${totalPresent}*\n❌ Отсутствуют: *${totalAbsent}*\nИТОГО ПОРЦИЙ: *${totalPresent}*`;
+
+    await sendAndLogMessage({
+      chatId: targetChatId,
+      message: message,
+      chatName: groupChatId ? GROUP_CHAT_NAMES.cafeteria : null,
+      source: "cafeteria_report",
+      senderName: "Директор",
+      senderRole: "director",
+    });
+
+    res.json({ ok: true, sentTo: cafeteriaPhone });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

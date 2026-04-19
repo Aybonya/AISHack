@@ -1,7 +1,6 @@
 import { extractAbsence } from "@/lib/parser/extractAbsence";
 import { extractAttendance } from "@/lib/parser/extractAttendance";
 import { extractIncident } from "@/lib/parser/extractIncident";
-import { extractTaskUpdate } from "@/lib/parser/extractTaskUpdate";
 import { extractTasks } from "@/lib/parser/extractTasks";
 import type { ParsedIntent, User } from "@/lib/types";
 
@@ -16,10 +15,6 @@ export function classifyMessage(text: string, users: User[]): ParsedIntent {
 
   if (extractAbsence(text, users)) {
     return "substitution";
-  }
-
-  if (extractTaskUpdate(text)) {
-    return "task_update";
   }
 
   if (extractTasks(text, users).length > 0) {

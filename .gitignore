@@ -14,3 +14,4 @@ yarn-error.log*
 .DS_Store
 GreenAPI/AISHack/.env
 GreenAPI/AISHack/firebase-service-account.json
+firebase-service-account.json
